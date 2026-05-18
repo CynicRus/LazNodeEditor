@@ -1,0 +1,10 @@
+object Form1: TForm1
+  Left = 384
+  Height = 600
+  Top = 150
+  Width = 1050
+  Caption = 'Advanced Node Editor Demo'
+  LCLVersion = '4.99.0.0'
+  OnCreate = FormCreate
+  OnShow = FormShow
+end
