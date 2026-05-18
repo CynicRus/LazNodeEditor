@@ -2,7 +2,7 @@
 
 <img src="https://github.com/CynicRus/LazNodeEditor/blob/main/image/linux.png?raw=true" alt="LazNodeEditor Demo" width="500">
 
-<img src="https://github.com/CynicRus/LazNodeEditor/blob/main/image/windows.png?raw=true" alt="LazNodeEditor Demo" width="500">
+<img src="https://raw.githubusercontent.com/CynicRus/LazNodeEditor/refs/heads/main/image/windows.png?raw=true" alt="LazNodeEditor Demo" width="500">
 
 A full-featured, cross-platform node-based visual programming / dataflow editor component for Lazarus IDE (works on **Windows** and **Linux**).
 
