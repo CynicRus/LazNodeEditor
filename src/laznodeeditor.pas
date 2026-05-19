@@ -333,6 +333,7 @@ type
     FOnLinkAdded: TGraphLinkEvent;
     FOnLinkRemoved: TGraphLinkEvent;
     FOnGraphChanged: TGraphChangedEvent;
+    FUpdateLock: integer;
 
     procedure DoGraphChanged;
     procedure RemoveLinksToInput(APin: TNodePin);
@@ -343,6 +344,9 @@ type
   public
     constructor Create;
     destructor Destroy; override;
+
+    procedure BeginUpdate;
+    procedure EndUpdate;
 
     procedure AddNode(ANode: TCustomNode);
     function DetachNode(ANode: TCustomNode): boolean;
@@ -2318,9 +2322,10 @@ begin
   RegisterNodeEx(ANodeType, ACaption, '', '', '', AClass);
 end;
 
-procedure TNodeRegistry.RegisterNodeEx(const ANodeType, ACaption,
-  ACategory, ADescription, ATags: string; AClass: TCustomNodeClass;
-  AColor: TColor; AHidden: boolean; ADeprecated: boolean; AVersion: integer);
+procedure TNodeRegistry.RegisterNodeEx(
+  const ANodeType, ACaption, ACategory, ADescription, ATags: string;
+  AClass: TCustomNodeClass; AColor: TColor; AHidden: boolean;
+  ADeprecated: boolean; AVersion: integer);
 var
   It: TNodeDefinition;
   TagsSL: TStringList;
@@ -2443,6 +2448,20 @@ begin
   FLinks.Free;
   FNodes.Free;
   inherited Destroy;
+end;
+
+procedure TNodeGraph.BeginUpdate;
+begin
+  Inc(FUpdateLock);
+end;
+
+procedure TNodeGraph.EndUpdate;
+begin
+  if FUpdateLock > 0 then
+    Dec(FUpdateLock);
+
+  if FUpdateLock = 0 then
+    DoGraphChanged;
 end;
 
 procedure TNodeGraph.AddNode(ANode: TCustomNode);
@@ -3003,6 +3022,9 @@ end;
 
 procedure TNodeGraph.DoGraphChanged;
 begin
+  if FUpdateLock > 0 then
+    Exit;
+
   if Assigned(FOnGraphChanged) then
     FOnGraphChanged(Self);
 end;
@@ -3293,39 +3315,45 @@ var
   FromPin, ToPin: TNodePin;
   NodeType: string;
 begin
-  Clear;
+  BeginUpdate;
+  try
+    Clear;
 
-  NodesArr := AObj.Arrays['nodes'];
-  if NodesArr <> nil then
-  begin
-    for i := 0 to NodesArr.Count - 1 do
+    NodesArr := AObj.Arrays['nodes'];
+    if NodesArr <> nil then
     begin
-      NodeObj := NodesArr.Objects[i];
-      NodeType := NodeObj.Get('type', 'default');
-
-      N := FRegistry.CreateNode(NodeType, NodeObj.Get('x', 0.0), NodeObj.Get('y', 0.0));
-      N.LoadFromJSON(NodeObj);
-      FNodes.Add(N);
-    end;
-  end;
-
-  LinksArr := AObj.Arrays['links'];
-  if LinksArr <> nil then
-  begin
-    for i := 0 to LinksArr.Count - 1 do
-    begin
-      LinkObj := LinksArr.Objects[i];
-      FromPin := FindPinById(LinkObj.Get('fromPinId', ''));
-      ToPin := FindPinById(LinkObj.Get('toPinId', ''));
-
-      if (FromPin <> nil) and (ToPin <> nil) and CanConnect(FromPin, ToPin) then
+      for i := 0 to NodesArr.Count - 1 do
       begin
-        L := TNodeLink.Create(FromPin, ToPin);
-        L.Id := LinkObj.Get('id', L.Id);
-        FLinks.Add(L);
+        NodeObj := NodesArr.Objects[i];
+        NodeType := NodeObj.Get('type', 'default');
+
+        N := FRegistry.CreateNode(NodeType, NodeObj.Get('x', 0.0), NodeObj.Get('y', 0.0));
+        N.LoadFromJSON(NodeObj);
+        FNodes.Add(N);
       end;
     end;
-    NormalizeGraph;
+
+    LinksArr := AObj.Arrays['links'];
+    if LinksArr <> nil then
+    begin
+      for i := 0 to LinksArr.Count - 1 do
+      begin
+        LinkObj := LinksArr.Objects[i];
+        FromPin := FindPinById(LinkObj.Get('fromPinId', ''));
+        ToPin := FindPinById(LinkObj.Get('toPinId', ''));
+
+        if (FromPin <> nil) and (ToPin <> nil) and CanConnect(FromPin, ToPin) then
+        begin
+          L := TNodeLink.Create(FromPin, ToPin);
+          L.Id := LinkObj.Get('id', L.Id);
+          FLinks.Add(L);
+        end;
+      end;
+      NormalizeGraph;
+    end;
+
+  finally
+    EndUpdate;
     DoGraphChanged;
   end;
 end;
