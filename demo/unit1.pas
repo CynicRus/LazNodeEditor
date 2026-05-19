@@ -147,6 +147,7 @@ type
     { Event handlers — editor }
     procedure OnSelectionChanged(Sender: TObject);
     procedure OnNodeChanged(Sender: TObject; ANode: TCustomNode);
+    procedure OnEditorZoomChanged(Sender: TObject);
 
     { Helpers }
     procedure UpdateStatus;
@@ -479,6 +480,7 @@ begin
 
   FEditor.OnSelectionChanged := @OnSelectionChanged;
   FEditor.OnNodeChanged      := @OnNodeChanged;
+  FEditor.OnZoomChanged      := @OnEditorZoomChanged;
 end;
 
 // =============================================================================
@@ -743,8 +745,8 @@ end;
 
 procedure TForm1.ClickZoomReset(Sender: TObject);
 begin
-  // Сбрасываем zoom к 1:1, центрируем на центр экрана
   FEditor.FrameAll;
+  FEditor.Zoom := 1.0;
   UpdateStatus;
 end;
 
@@ -878,6 +880,11 @@ end;
 procedure TForm1.OnNodeChanged(Sender: TObject; ANode: TCustomNode);
 begin
   FInspector.RefreshFromSelection;
+  UpdateStatus;
+end;
+
+procedure TForm1.OnEditorZoomChanged(Sender: TObject);
+begin
   UpdateStatus;
 end;
 
