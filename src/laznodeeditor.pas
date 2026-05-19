@@ -372,7 +372,6 @@ type
     function LinkExists(FromPin, ToPin: TNodePin): boolean;
 
     procedure Clear;
-    procedure PushUndoSnapshot;
     procedure Undo;
     procedure Redo;
 
@@ -3151,29 +3150,6 @@ begin
     FUndoStack.Delete(0);
 
   DoGraphChanged;
-end;
-
-procedure TNodeGraph.PushUndoSnapshot;
-var
-  Obj: TJSONObject;
-  Cmd: TJSONSnapshotCommand;
-begin
-  if FUndoLock then
-    Exit;
-
-  Obj := SaveGraphToJSON;
-  try
-    Cmd := TJSONSnapshotCommand.Create(Self, Obj.AsJSON, Obj.AsJSON, 'Snapshot');
-    FUndoStack.Add(Cmd);
-  finally
-    Obj.Free;
-  end;
-
-  while FUndoStack.Count > 100 do
-  begin
-    TObject(FUndoStack[0]).Free;
-    FUndoStack.Delete(0);
-  end;
 end;
 
 function TNodeGraph.CaptureJSONText: string;
