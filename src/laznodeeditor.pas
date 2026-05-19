@@ -687,7 +687,7 @@ type
 
     procedure NotifySelectionChanged;
     procedure ControllerSelectionChanged(Sender: TObject);
-    procedure SetZoom(AValue: Double);
+    procedure SetZoom(AValue: double);
     procedure SyncControllerSelectionToView;
 
     function GetResizeHandleRect(ANode: TCustomNode): TRect;
@@ -784,7 +784,7 @@ type
     function RemovePinFromNode(APin: TNodePin): boolean;
 
     property Graph: TNodeGraph read FGraph;
-    property Zoom: Double read FZoom write SetZoom;
+    property Zoom: double read FZoom write SetZoom;
 
   published
     property Align;
@@ -798,7 +798,8 @@ type
     property OnSelectionChanged: TNodeSelectionChangedEvent
       read FOnSelectionChanged write FOnSelectionChanged;
     property OnNodeChanged: TNodeChangedEvent read FOnNodeChanged write FOnNodeChanged;
-    property OnZoomChanged: TEditorZoomChangedEvent read FOnZoomChanged write FOnZoomChanged;
+    property OnZoomChanged: TEditorZoomChangedEvent
+      read FOnZoomChanged write FOnZoomChanged;
   end;
 
 
@@ -877,6 +878,14 @@ type
 procedure Register;
 
 implementation
+
+{$IF FPC_FULLVERSION <= 30202}
+function PointF(const AX, AY: single): TPointF; inline;
+begin
+  Result.X := AX;
+  Result.Y := AY;
+end;
+{$ENDIF}
 
 // =============================================================================
 // Helpers
@@ -2327,10 +2336,9 @@ begin
   RegisterNodeEx(ANodeType, ACaption, '', '', '', AClass);
 end;
 
-procedure TNodeRegistry.RegisterNodeEx(
-  const ANodeType, ACaption, ACategory, ADescription, ATags: string;
-  AClass: TCustomNodeClass; AColor: TColor; AHidden: boolean;
-  ADeprecated: boolean; AVersion: integer);
+procedure TNodeRegistry.RegisterNodeEx(const ANodeType, ACaption,
+  ACategory, ADescription, ATags: string; AClass: TCustomNodeClass;
+  AColor: TColor; AHidden: boolean; ADeprecated: boolean; AVersion: integer);
 var
   It: TNodeDefinition;
   TagsSL: TStringList;
@@ -3332,7 +3340,8 @@ begin
         NodeObj := NodesArr.Objects[i];
         NodeType := NodeObj.Get('type', 'default');
 
-        N := FRegistry.CreateNode(NodeType, NodeObj.Get('x', 0.0), NodeObj.Get('y', 0.0));
+        N := FRegistry.CreateNode(NodeType, NodeObj.Get('x', 0.0),
+          NodeObj.Get('y', 0.0));
         N.LoadFromJSON(NodeObj);
         FNodes.Add(N);
       end;
@@ -5057,10 +5066,10 @@ begin
   SyncControllerSelectionToView;
 end;
 
-procedure TLazNodeEditor.SetZoom(AValue: Double);
+procedure TLazNodeEditor.SetZoom(AValue: double);
 begin
-  if FZoom=AValue then Exit;
-  FZoom:=AValue;
+  if FZoom = AValue then Exit;
+  FZoom := AValue;
   if Assigned(FOnZoomChanged) then FOnZoomChanged(Self);
   Invalidate;
 end;
