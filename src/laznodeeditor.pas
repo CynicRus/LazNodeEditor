@@ -79,6 +79,7 @@ type
   TGraphNodeEvent = procedure(Sender: TObject; ANode: TCustomNode) of object;
   TGraphLinkEvent = procedure(Sender: TObject; ALink: TNodeLink) of object;
   TGraphChangedEvent = procedure(Sender: TObject) of object;
+  TEditorZoomChangedEvent = procedure(Sender: TObject) of object;
 
   TNodePinType = class
   public
@@ -628,6 +629,7 @@ type
   private
     FGraph: TNodeGraph;
     FController: TNodeEditorController;
+    FOnZoomChanged: TEditorZoomChangedEvent;
 
     FZoom: double;
     FOffsetX, FOffsetY: integer;
@@ -685,6 +687,7 @@ type
 
     procedure NotifySelectionChanged;
     procedure ControllerSelectionChanged(Sender: TObject);
+    procedure SetZoom(AValue: Double);
     procedure SyncControllerSelectionToView;
 
     function GetResizeHandleRect(ANode: TCustomNode): TRect;
@@ -728,6 +731,7 @@ type
 
     function SnapWorldValue(V: single): single;
     function SnapWorldPoint(const P: TPointF): TPointF;
+
 
 
   protected
@@ -780,7 +784,7 @@ type
     function RemovePinFromNode(APin: TNodePin): boolean;
 
     property Graph: TNodeGraph read FGraph;
-    property Zoom: double read FZoom;
+    property Zoom: Double read FZoom write SetZoom;
 
   published
     property Align;
@@ -794,6 +798,7 @@ type
     property OnSelectionChanged: TNodeSelectionChangedEvent
       read FOnSelectionChanged write FOnSelectionChanged;
     property OnNodeChanged: TNodeChangedEvent read FOnNodeChanged write FOnNodeChanged;
+    property OnZoomChanged: TEditorZoomChangedEvent read FOnZoomChanged write FOnZoomChanged;
   end;
 
 
@@ -5052,6 +5057,14 @@ begin
   SyncControllerSelectionToView;
 end;
 
+procedure TLazNodeEditor.SetZoom(AValue: Double);
+begin
+  if FZoom=AValue then Exit;
+  FZoom:=AValue;
+  if Assigned(FOnZoomChanged) then FOnZoomChanged(Self);
+  Invalidate;
+end;
+
 procedure TLazNodeEditor.SyncControllerSelectionToView;
 var
   i: integer;
@@ -6570,6 +6583,8 @@ begin
   FZoom := EnsureRange(FZoom, 0.25, 3.0);
   FOffsetX := MousePos.X - Round((MousePos.X - FOffsetX) * (FZoom / OldZoom));
   FOffsetY := MousePos.Y - Round((MousePos.Y - FOffsetY) * (FZoom / OldZoom));
+  if Assigned(FOnZoomChanged) then
+    FOnZoomChanged(Self);
   Invalidate;
 end;
 
