@@ -4778,7 +4778,7 @@ begin
   FPopupMenu := TPopupMenu.Create(Self);
   FPopupMenu.OnClose:=@OnPopupClose;
   BuildContextMenu;
-  PopupMenu := FPopupMenu;
+  //PopupMenu := FPopupMenu;
 end;
 
 destructor TLazNodeEditor.Destroy;
@@ -5264,7 +5264,7 @@ procedure TLazNodeEditor.GetLinkBezierPoints(ALink: TNodeLink;
   out P0, P1, P2, P3: TPoint);
 var
   S0, S1: TPoint;
-  DX, DY: integer;
+  DX, DY: single;
   Dist: single;
   D: integer;
 begin
@@ -5278,7 +5278,8 @@ begin
   DX := P3.X - P0.X;
   DY := P3.Y - P0.Y;
 
-  Dist := Sqrt(DX * DX + DY * DY);
+  //Dist := Sqrt(DX * DX + DY * DY);
+  Dist := Hypot(DX,DY);
 
   D := Round(Dist * 0.35);
   D := EnsureRange(D, 30, 150);
