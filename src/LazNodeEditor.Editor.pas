@@ -49,8 +49,8 @@ type
     FOffsetX, FOffsetY: integer;
 
     FSelectedNode: TCustomNode;
-    FSelectedLink: TNodeLink;           // primary selected link (first one)
-    FSelectedLinks: TNodeLinkList;      // support for multiple selected links
+    FSelectedLink: TNodeLink;
+    FSelectedLinks: TNodeLinkList;
     FSelectedNodes: TCustomNodeList;
 
     FDraggingNode: boolean;
@@ -105,6 +105,14 @@ type
 
     FSnapToGrid: boolean;
     FGridSize: integer;
+    FSnapToNodes: boolean;
+    FNodeSnapDistance: single;
+
+    FShowSnapGuides: boolean;
+    FGuideSnapXActive: boolean;
+    FGuideSnapYActive: boolean;
+    FGuideSnapX: single;
+    FGuideSnapY: single;
 
     procedure NotifySelectionChanged;
     procedure ControllerSelectionChanged(Sender: TObject);
@@ -160,6 +168,13 @@ type
     function SnapWorldValue(V: single): single;
     function SnapWorldPoint(const P: TPointF): TPointF;
     procedure OnPopupClose(Sender: TObject);
+
+    function IsNodeInDragSelection(ANode: TCustomNode): boolean;
+    function GetDraggedSelectionBoundsAtOffset(const AOffsetX, AOffsetY: single): TRectF;
+    procedure ApplyNodeSnap(var AOffsetX, AOffsetY: single);
+
+    procedure ClearSnapGuides;
+    procedure DrawSnapGuides;
 
   protected
     procedure Paint; override;
@@ -224,6 +239,9 @@ type
     property PopupMenu;
     property SnapToGrid: boolean read FSnapToGrid write FSnapToGrid default False;
     property GridSize: integer read FGridSize write FGridSize default 40;
+    property ShowSnapGuides: boolean read FShowSnapGuides write FShowSnapGuides default True;
+    property SnapToNodes: boolean read FSnapToNodes write FSnapToNodes default True;
+    property NodeSnapDistance: single read FNodeSnapDistance write FNodeSnapDistance;
 
     property OnSelectionChanged: TNodeSelectionChangedEvent
       read FOnSelectionChanged write FOnSelectionChanged;
@@ -249,8 +267,16 @@ begin
   FZoom := 1.0;
   FSnapToGrid := False;
   FGridSize := 40;
+  FSnapToNodes := True;
+  FNodeSnapDistance := 10.0;
   FOffsetX := 0;
   FOffsetY := 0;
+
+  FShowSnapGuides := True;
+  FGuideSnapXActive := False;
+  FGuideSnapYActive := False;
+  FGuideSnapX := 0;
+  FGuideSnapY := 0;
 
   Color := $00F0F8FF;
   DoubleBuffered := True;
@@ -775,6 +801,212 @@ begin
   CancelMouseOperations(False);
 end;
 
+function TLazNodeEditor.IsNodeInDragSelection(ANode: TCustomNode): boolean;
+begin
+  Result := (ANode <> nil) and (FDragCommandNodes.IndexOf(ANode) >= 0);
+end;
+
+function TLazNodeEditor.GetDraggedSelectionBoundsAtOffset(
+  const AOffsetX, AOffsetY: single): TRectF;
+var
+  i: integer;
+  N: TCustomNode;
+  L, T, R, B: single;
+  First: boolean;
+begin
+  Result := RectF(0, 0, 0, 0);
+  First := True;
+
+  for i := 0 to FDragCommandNodes.Count - 1 do
+  begin
+    N := TCustomNode(FDragCommandNodes[i]);
+    if N = nil then
+      Continue;
+
+    L := FDragOldPositions[i].X + AOffsetX;
+    T := FDragOldPositions[i].Y + AOffsetY;
+    R := L + N.Width;
+    B := T + N.Height;
+
+    if First then
+    begin
+      Result := RectF(L, T, R, B);
+      First := False;
+    end
+    else
+    begin
+      if L < Result.Left then Result.Left := L;
+      if T < Result.Top then Result.Top := T;
+      if R > Result.Right then Result.Right := R;
+      if B > Result.Bottom then Result.Bottom := B;
+    end;
+  end;
+end;
+
+procedure TLazNodeEditor.ApplyNodeSnap(var AOffsetX, AOffsetY: single);
+var
+  DragBounds: TRectF;
+  OtherBounds: TRectF;
+  DragLeft, DragRight, DragTop, DragBottom: single;
+  DragCenterX, DragCenterY: single;
+  OtherLeft, OtherRight, OtherTop, OtherBottom: single;
+  OtherCenterX, OtherCenterY: single;
+  BestDX, BestDY: single;
+  CandDX, CandDY: single;
+  BestAbsDX, BestAbsDY: single;
+  D: single;
+  i: integer;
+  N: TCustomNode;
+  BestGuideX, BestGuideY: single;
+begin
+  ClearSnapGuides;
+
+  if not FSnapToNodes then
+    Exit;
+
+  if FDragCommandNodes.Count = 0 then
+    Exit;
+
+  DragBounds := GetDraggedSelectionBoundsAtOffset(AOffsetX, AOffsetY);
+
+  DragLeft := DragBounds.Left;
+  DragRight := DragBounds.Right;
+  DragTop := DragBounds.Top;
+  DragBottom := DragBounds.Bottom;
+  DragCenterX := (DragLeft + DragRight) * 0.5;
+  DragCenterY := (DragTop + DragBottom) * 0.5;
+
+  BestDX := 0;
+  BestDY := 0;
+  BestGuideX := 0;
+  BestGuideY := 0;
+  BestAbsDX := FNodeSnapDistance + 1;
+  BestAbsDY := FNodeSnapDistance + 1;
+
+  for i := 0 to FGraph.Nodes.Count - 1 do
+  begin
+    N := TCustomNode(FGraph.Nodes[i]);
+    if (N = nil) or IsNodeInDragSelection(N) then
+      Continue;
+
+    OtherBounds := RectF(N.X, N.Y, N.X + N.Width, N.Y + N.Height);
+
+    OtherLeft := OtherBounds.Left;
+    OtherRight := OtherBounds.Right;
+    OtherTop := OtherBounds.Top;
+    OtherBottom := OtherBounds.Bottom;
+    OtherCenterX := (OtherLeft + OtherRight) * 0.5;
+    OtherCenterY := (OtherTop + OtherBottom) * 0.5;
+
+    // X-axis snapping
+    CandDX := OtherLeft - DragLeft;
+    D := Abs(CandDX);
+    if D < BestAbsDX then
+    begin
+      BestAbsDX := D;
+      BestDX := CandDX;
+      BestGuideX := OtherLeft;
+    end;
+
+    CandDX := OtherRight - DragRight;
+    D := Abs(CandDX);
+    if D < BestAbsDX then
+    begin
+      BestAbsDX := D;
+      BestDX := CandDX;
+      BestGuideX := OtherRight;
+    end;
+
+    CandDX := OtherCenterX - DragCenterX;
+    D := Abs(CandDX);
+    if D < BestAbsDX then
+    begin
+      BestAbsDX := D;
+      BestDX := CandDX;
+      BestGuideX := OtherCenterX;
+    end;
+
+    // Y-axis snapping
+    CandDY := OtherTop - DragTop;
+    D := Abs(CandDY);
+    if D < BestAbsDY then
+    begin
+      BestAbsDY := D;
+      BestDY := CandDY;
+      BestGuideY := OtherTop;
+    end;
+
+    CandDY := OtherBottom - DragBottom;
+    D := Abs(CandDY);
+    if D < BestAbsDY then
+    begin
+      BestAbsDY := D;
+      BestDY := CandDY;
+      BestGuideY := OtherBottom;
+    end;
+
+    CandDY := OtherCenterY - DragCenterY;
+    D := Abs(CandDY);
+    if D < BestAbsDY then
+    begin
+      BestAbsDY := D;
+      BestDY := CandDY;
+      BestGuideY := OtherCenterY;
+    end;
+  end;
+
+  if BestAbsDX <= FNodeSnapDistance then
+  begin
+    AOffsetX := AOffsetX + BestDX;
+    FGuideSnapXActive := True;
+    FGuideSnapX := BestGuideX;
+  end;
+
+  if BestAbsDY <= FNodeSnapDistance then
+  begin
+    AOffsetY := AOffsetY + BestDY;
+    FGuideSnapYActive := True;
+    FGuideSnapY := BestGuideY;
+  end;
+end;
+
+procedure TLazNodeEditor.ClearSnapGuides;
+begin
+  FGuideSnapXActive := False;
+  FGuideSnapYActive := False;
+  FGuideSnapX := 0;
+  FGuideSnapY := 0;
+end;
+
+procedure TLazNodeEditor.DrawSnapGuides;
+var
+  SX, SY: integer;
+begin
+  if not FShowSnapGuides then
+    Exit;
+
+  Canvas.Pen.Style := psDash;
+  Canvas.Pen.Width := 1;
+  Canvas.Pen.Color := clAqua;
+
+  if FGuideSnapXActive then
+  begin
+    SX := Round(FGuideSnapX * FZoom) + FOffsetX;
+    Canvas.MoveTo(SX, 0);
+    Canvas.LineTo(SX, ClientHeight);
+  end;
+
+  if FGuideSnapYActive then
+  begin
+    SY := Round(FGuideSnapY * FZoom) + FOffsetY;
+    Canvas.MoveTo(0, SY);
+    Canvas.LineTo(ClientWidth, SY);
+  end;
+
+  Canvas.Pen.Style := psSolid;
+  Canvas.Pen.Width := 1;
+end;
+
 function TLazNodeEditor.GetNodeUnderMouse(SX, SY: integer): TCustomNode;
 var
   i: integer;
@@ -835,8 +1067,8 @@ begin
     if PtInRect(R, Point(Round(Cur.X), Round(Cur.Y))) then
       Exit(True);
 
-    if LineIntersectsRect(Round(Prev.X), Round(Prev.Y),
-      Round(Cur.X), Round(Cur.Y), R) then
+    if LineIntersectsRect(Round(Prev.X), Round(Prev.Y), Round(Cur.X),
+      Round(Cur.Y), R) then
       Exit(True);
 
     Prev := Cur;
@@ -1130,8 +1362,8 @@ var
   R: TRect;
   Sorted: TList;
   CX, CY, DX, DY: single;
-  Txt: String;
-  TX,TY: integer;
+  Txt: string;
+  TX, TY: integer;
   ScreenPos: TPoint;
 
   procedure PaintResizeHandles;
@@ -1206,10 +1438,13 @@ begin
     Sorted.Free;
   end;
 
+  if FDraggingNode then
+    DrawSnapGuides;
+
   DrawTempLink;
   DrawBoxSelect;
 
-    if FDraggingNode and FShowDragCoordinates and (FSelectedNode <> nil) and
+  if FDraggingNode and FShowDragCoordinates and (FSelectedNode <> nil) and
     ((GetKeyState(VK_MENU) and $8000) <> 0) then
   begin
     Canvas.Font.Color := clBlack;
@@ -1222,8 +1457,7 @@ begin
     DX := CX - FDragStartWorldPos.X;
     DY := CY - FDragStartWorldPos.Y;
 
-    Txt := Format('X: %.1f   Y: %.1f   (Δ %.1f, %.1f)',
-      [CX, CY, DX, DY]);
+    Txt := Format('X: %.1f   Y: %.1f   (Δ %.1f, %.1f)', [CX, CY, DX, DY]);
 
     ScreenPos := WorldToScreen(CX, CY);
     TX := ScreenPos.X + Round(10 * FZoom);
@@ -1591,7 +1825,7 @@ begin
   FRightButtonDown := False;
   MouseCapture := False;
   Cursor := crDefault;
-
+  ClearSnapGuides;
   ClearHoverStates;
   NotifySelectionChanged;
 end;
@@ -1853,6 +2087,7 @@ begin
 
   if Button = mbLeft then
   begin
+    ClearSnapGuides;
     Node := GetNodeResizeUnderMouse(X, Y);
     if Node <> nil then
     begin
@@ -1895,7 +2130,7 @@ begin
       end
       else
       begin
-        // Normal click on link → select only this link (clear nodes and other links)
+        // Normal click on link → select only this link
         ClearSelectionInternal;
         FSelectedLinks.Clear;
         FSelectedLink := Link;
@@ -1957,7 +2192,8 @@ begin
       if FSelectedNode <> nil then
         FDragStartWorldPos := PointF(FSelectedNode.X, FSelectedNode.Y)
       else if FSelectedNodes.Count > 0 then
-        FDragStartWorldPos := PointF(TCustomNode(FSelectedNodes[0]).X, TCustomNode(FSelectedNodes[0]).Y);
+        FDragStartWorldPos := PointF(TCustomNode(FSelectedNodes[0]).X,
+          TCustomNode(FSelectedNodes[0]).Y);
 
       FDragCommandNodes.Clear;
       SetLength(FDragOldPositions, FSelectedNodes.Count);
@@ -2067,14 +2303,19 @@ begin
       Dx := (X - FDragAnchorX) / FZoom;
       Dy := (Y - FDragAnchorY) / FZoom;
 
+      Dx := SnapWorldValue(Dx);
+      Dy := SnapWorldValue(Dy);
+
+      ApplyNodeSnap(Dx, Dy);
+
       for i := 0 to FDragCommandNodes.Count - 1 do
       begin
         N := TCustomNode(FDragCommandNodes[i]);
         BaseX := FDragOldPositions[i].X;
         BaseY := FDragOldPositions[i].Y;
 
-        N.X := SnapWorldValue(BaseX + Dx);
-        N.Y := SnapWorldValue(BaseY + Dy);
+        N.X := BaseX + Dx;
+        N.Y := BaseY + Dy;
 
         if Assigned(FOnNodeChanged) then
           FOnNodeChanged(Self, N);
@@ -2082,14 +2323,19 @@ begin
     end
     else
     begin
-      Dx := (X - FDragStartX) / FZoom;
-      Dy := (Y - FDragStartY) / FZoom;
+      Dx := (X - FDragAnchorX) / FZoom;
+      Dy := (Y - FDragAnchorY) / FZoom;
 
-      for i := 0 to FSelectedNodes.Count - 1 do
+      ApplyNodeSnap(Dx, Dy);
+
+      for i := 0 to FDragCommandNodes.Count - 1 do
       begin
-        N := TCustomNode(FSelectedNodes[i]);
-        N.X := N.X + Dx;
-        N.Y := N.Y + Dy;
+        N := TCustomNode(FDragCommandNodes[i]);
+        BaseX := FDragOldPositions[i].X;
+        BaseY := FDragOldPositions[i].Y;
+
+        N.X := BaseX + Dx;
+        N.Y := BaseY + Dy;
 
         if Assigned(FOnNodeChanged) then
           FOnNodeChanged(Self, N);
@@ -2300,6 +2546,7 @@ begin
     FShowDragCoordinates := False;
     FDragCommandNodes.Clear;
     SetLength(FDragOldPositions, 0);
+    ClearSnapGuides;
 
     if FBoxSelecting then
     begin
@@ -2424,6 +2671,7 @@ begin
   if not KeepSelectionRect then
     FBoxSelecting := False;
 
+  ClearSnapGuides;
   MouseCapture := False;
   Cursor := crDefault;
   Invalidate;
