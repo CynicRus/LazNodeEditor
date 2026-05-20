@@ -172,6 +172,12 @@ function CubicBezierPoint(const P0, P1, P2, P3: TPoint; t: double): TPointF;
 function DistancePointToSegment(const P, A, B: TPointF): double;
 function PointDistance(const A, B: TPoint): double;
 procedure DrawCubicBezier(C: TCanvas; P0, P1, P2, P3: TPoint; Steps: integer = 32);
+function PointInRectInclusive(const R: TRect; X, Y: integer): boolean;
+function Cross(const AX, AY, BX, BY, CX, CY: integer): Int64;
+function OnSegment(const AX, AY, BX, BY, PX, PY: integer): boolean;
+function SegmentsIntersect(
+  AX, AY, BX, BY, CX, CY, DX, DY: integer): boolean;
+function LineIntersectsRect(X1, Y1, X2, Y2: integer; const R: TRect): boolean;
 
 implementation
 
@@ -581,6 +587,57 @@ begin
 
     C.LineTo(Round(x), Round(y));
   end;
+end;
+
+function PointInRectInclusive(const R: TRect; X, Y: integer): boolean;
+begin
+  Result := (X >= R.Left) and (X <= R.Right) and (Y >= R.Top) and (Y <= R.Bottom);
+end;
+
+function Cross(const AX, AY, BX, BY, CX, CY: integer): Int64;
+begin
+  Result := Int64(BX - AX) * Int64(CY - AY) - Int64(BY - AY) * Int64(CX - AX);
+end;
+
+function OnSegment(const AX, AY, BX, BY, PX, PY: integer): boolean;
+begin
+  Result :=
+    (Min(AX, BX) <= PX) and (PX <= Max(AX, BX)) and
+    (Min(AY, BY) <= PY) and (PY <= Max(AY, BY));
+end;
+
+function SegmentsIntersect(
+  AX, AY, BX, BY, CX, CY, DX, DY: integer): boolean;
+var
+  C1, C2, C3, C4: Int64;
+begin
+  C1 := Cross(AX, AY, BX, BY, CX, CY);
+  C2 := Cross(AX, AY, BX, BY, DX, DY);
+  C3 := Cross(CX, CY, DX, DY, AX, AY);
+  C4 := Cross(CX, CY, DX, DY, BX, BY);
+
+  if (((C1 > 0) and (C2 < 0)) or ((C1 < 0) and (C2 > 0))) and
+     (((C3 > 0) and (C4 < 0)) or ((C3 < 0) and (C4 > 0))) then
+    Exit(True);
+
+  if (C1 = 0) and OnSegment(AX, AY, BX, BY, CX, CY) then Exit(True);
+  if (C2 = 0) and OnSegment(AX, AY, BX, BY, DX, DY) then Exit(True);
+  if (C3 = 0) and OnSegment(CX, CY, DX, DY, AX, AY) then Exit(True);
+  if (C4 = 0) and OnSegment(CX, CY, DX, DY, BX, BY) then Exit(True);
+
+  Result := False;
+end;
+
+function LineIntersectsRect(X1, Y1, X2, Y2: integer; const R: TRect): boolean;
+begin
+  if PointInRectInclusive(R, X1, Y1) or PointInRectInclusive(R, X2, Y2) then
+    Exit(True);
+
+  Result :=
+    SegmentsIntersect(X1, Y1, X2, Y2, R.Left,  R.Top,    R.Right, R.Top) or
+    SegmentsIntersect(X1, Y1, X2, Y2, R.Right, R.Top,    R.Right, R.Bottom) or
+    SegmentsIntersect(X1, Y1, X2, Y2, R.Right, R.Bottom, R.Left,  R.Bottom) or
+    SegmentsIntersect(X1, Y1, X2, Y2, R.Left,  R.Bottom, R.Left,  R.Top);
 end;
 
 end.

@@ -131,6 +131,7 @@ type
     function ScreenToWorld(SX, SY: integer): TPointF;
 
     function GetNodeUnderMouse(SX, SY: integer): TCustomNode;
+    function IsLinkInsideScreenRect(ALink: TNodeLink; const R: TRect): boolean;
     function GetPinUnderMouse(SX, SY: integer; out Node: TCustomNode;
       out Pin: TNodePin): boolean;
     function GetLinkUnderMouse(SX, SY: integer; out Link: TNodeLink): boolean;
@@ -268,7 +269,7 @@ begin
   FRightButtonDown := False;
 
   FPopupMenu := TPopupMenu.Create(Self);
-  FPopupMenu.OnClose:=@OnPopupClose;
+  FPopupMenu.OnClose := @OnPopupClose;
   BuildContextMenu;
 end;
 
@@ -500,7 +501,8 @@ begin
     FController.Selection.SelectNode(ANode, AAppend);
 end;
 
-procedure TLazNodeEditor.SelectLinkInternal(ALink: TNodeLink; AKeepNodes: boolean = False);
+procedure TLazNodeEditor.SelectLinkInternal(ALink: TNodeLink;
+  AKeepNodes: boolean = False);
 var
   i: integer;
 begin
@@ -570,7 +572,7 @@ begin
   if FSelectedNode = ANode then
   begin
     if FSelectedNodes.Count > 0 then
-      FSelectedNode := TCustomNode(FSelectedNodes[FSelectedNodes.Count-1])
+      FSelectedNode := TCustomNode(FSelectedNodes[FSelectedNodes.Count - 1])
     else
       FSelectedNode := nil;
   end;
@@ -668,6 +670,7 @@ procedure TLazNodeEditor.SyncControllerSelectionToView;
 var
   i: integer;
   N: TCustomNode;
+  L: TNodeLink;
 begin
   if FController = nil then
     Exit;
@@ -676,6 +679,7 @@ begin
     TCustomNode(FGraph.Nodes[i]).Selected := False;
 
   FSelectedNodes.Clear;
+  FSelectedLinks.Clear;
   FSelectedNode := nil;
   FSelectedLink := nil;
 
@@ -690,13 +694,15 @@ begin
     end;
   end;
 
-  if FController.Selection.HasLink then
+  for i := 0 to FController.Selection.LinkCount - 1 do
   begin
-    FSelectedLink := FController.Selection.SelectedLink;
-    FSelectedLinks.Clear;
-    for i := 0 to FController.Selection.LinkCount - 1 do
-      FSelectedLinks.Add(FController.Selection.GetLink(i));
+    L := FController.Selection.GetLink(i);
+    if L <> nil then
+      FSelectedLinks.Add(L);
   end;
+
+  if FSelectedLinks.Count > 0 then
+    FSelectedLink := FSelectedLinks[0];
 
   NotifySelectionChanged;
   Invalidate;
@@ -797,6 +803,42 @@ begin
   end;
 end;
 
+function TLazNodeEditor.IsLinkInsideScreenRect(ALink: TNodeLink;
+  const R: TRect): boolean;
+var
+  P0, P1, P2, P3: TPoint;
+  Prev, Cur: TPointF;
+  k: integer;
+begin
+  Result := False;
+
+  if (ALink = nil) or (ALink.FromPin = nil) or (ALink.ToPin = nil) then
+    Exit;
+
+  if (ALink.FromPin.OwnerNode = nil) or (ALink.ToPin.OwnerNode = nil) then
+    Exit;
+
+  GetLinkBezierPoints(ALink, P0, P1, P2, P3);
+
+  if PtInRect(R, P0) or PtInRect(R, P3) then
+    Exit(True);
+
+  Prev := PointF(P0.X, P0.Y);
+  for k := 1 to 32 do
+  begin
+    Cur := CubicBezierPoint(P0, P1, P2, P3, k / 32);
+
+    if PtInRect(R, Point(Round(Cur.X), Round(Cur.Y))) then
+      Exit(True);
+
+    if LineIntersectsRect(Round(Prev.X), Round(Prev.Y),
+      Round(Cur.X), Round(Cur.Y), R) then
+      Exit(True);
+
+    Prev := Cur;
+  end;
+end;
+
 function TLazNodeEditor.GetPinUnderMouse(SX, SY: integer; out Node: TCustomNode;
   out Pin: TNodePin): boolean;
 var
@@ -874,10 +916,10 @@ var
   Dist: single;
   D: integer;
 begin
-  S0 := TCustomNode(ALink.FromPin.OwnerNode).GetPinScreenPosition(ALink.FromPin,
+  S0 := TCustomNode(ALink.FromPin.OwnerNode).GetPinScreenPosition(
+    ALink.FromPin, FZoom, FOffsetX, FOffsetY);
+  S1 := TCustomNode(ALink.ToPin.OwnerNode).GetPinScreenPosition(ALink.ToPin,
     FZoom, FOffsetX, FOffsetY);
-  S1 := TCustomNode(ALink.ToPin.OwnerNode).GetPinScreenPosition(ALink.ToPin, FZoom,
-    FOffsetX, FOffsetY);
   P0 := S0;
   P3 := S1;
 
@@ -1883,7 +1925,7 @@ begin
         FDragCommandNodes.Add(FSelectedNodes[i]);
         FDragOldPositions[i] :=
           PointF(TCustomNode(FSelectedNodes[i]).X,
-                 TCustomNode(FSelectedNodes[i]).Y);
+          TCustomNode(FSelectedNodes[i]).Y);
       end;
 
       NotifySelectionChanged;
@@ -2223,22 +2265,40 @@ begin
       if not (ssCtrl in Shift) and not (ssShift in Shift) then
         ClearSelectionInternal;
 
-      for i := 0 to FGraph.Nodes.Count - 1 do
+      if ssShift in Shift then
       begin
-        N := TCustomNode(FGraph.Nodes[i]);
-        if RectIntersects(R, N.GetScreenBounds(FZoom, FOffsetX, FOffsetY)) then
-          AddNodeToSelection(N);
-      end;
-
-      if (ssShift in Shift) or (ssCtrl in Shift) then
+        // Shift + box: only nodes
+        for i := 0 to FGraph.Nodes.Count - 1 do
+        begin
+          N := TCustomNode(FGraph.Nodes[i]);
+          if RectIntersects(R, N.GetScreenBounds(FZoom, FOffsetX, FOffsetY)) then
+            AddNodeToSelection(N);
+        end;
+      end
+      else if ssCtrl in Shift then
       begin
+        // Ctrl + box: only links
         for i := 0 to FGraph.Links.Count - 1 do
         begin
           L := TNodeLink(FGraph.Links[i]);
-          if GetLinkUnderMouse(FBoxCurrent.X, FBoxCurrent.Y, L) then
-          begin
+          if IsLinkInsideScreenRect(L, R) then
             AddLinkToSelection(L);
-          end;
+        end;
+      end
+      else
+      begin
+        for i := 0 to FGraph.Nodes.Count - 1 do
+        begin
+          N := TCustomNode(FGraph.Nodes[i]);
+          if RectIntersects(R, N.GetScreenBounds(FZoom, FOffsetX, FOffsetY)) then
+            AddNodeToSelection(N);
+        end;
+
+        for i := 0 to FGraph.Links.Count - 1 do
+        begin
+          L := TNodeLink(FGraph.Links[i]);
+          if IsLinkInsideScreenRect(L, R) then
+            AddLinkToSelection(L);
         end;
       end;
 
@@ -2393,11 +2453,45 @@ begin
     Exit;
   end;
 
+  if (Key = Ord('A')) and (ssCtrl in Shift) and (ssShift in Shift) then
+  begin
+    // Ctrl + Shift + A -> only nodes
+    ClearSelectionInternal;
+
+    for i := 0 to FGraph.Nodes.Count - 1 do
+      AddNodeToSelection(TCustomNode(FGraph.Nodes[i]));
+
+    NotifySelectionChanged;
+    Invalidate;
+    Key := 0;
+    Exit;
+  end;
+
   if (Key = Ord('A')) and (ssCtrl in Shift) then
   begin
+    // Ctrl + A -> nodes + links
     ClearSelectionInternal;
+
     for i := 0 to FGraph.Nodes.Count - 1 do
-      SelectNodeInternal(TCustomNode(FGraph.Nodes[i]), True);
+      AddNodeToSelection(TCustomNode(FGraph.Nodes[i]));
+
+    for i := 0 to FGraph.Links.Count - 1 do
+      AddLinkToSelection(TNodeLink(FGraph.Links[i]));
+
+    NotifySelectionChanged;
+    Invalidate;
+    Key := 0;
+    Exit;
+  end;
+
+  if (Key = Ord('A')) and (ssShift in Shift) then
+  begin
+    // Shift + A -> only links
+    ClearSelectionInternal;
+
+    for i := 0 to FGraph.Links.Count - 1 do
+      AddLinkToSelection(TNodeLink(FGraph.Links[i]));
+
     NotifySelectionChanged;
     Invalidate;
     Key := 0;
@@ -2413,5 +2507,3 @@ begin
 end;
 
 end.
-
-
