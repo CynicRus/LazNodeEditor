@@ -28,7 +28,7 @@ interface
 
 uses
   Classes, SysUtils, Graphics, Controls, ExtCtrls, LCLIntf, LCLType, Math, Types,
-  Menus, Clipbrd, fpjson, jsonparser, Forms, StdCtrls, Dialogs,
+  Menus, Clipbrd, Forms, StdCtrls, Dialogs,
   LazNodeEditor.Types,
   LazNodeEditor.Nodes,
   LazNodeEditor.Graph,
@@ -38,7 +38,7 @@ type
   TNodeSelectionChangedEvent = procedure(Sender: TObject) of object;
   TNodeChangedEvent = procedure(Sender: TObject; ANode: TCustomNode) of object;
 
-  { TLazNodeEditor — VIEW + CONTROLLER }
+  { TLazNodeEditor — VIEW + CONTROLLER WRAPPER }
   TLazNodeEditor = class(TCustomControl)
   private
     FGraph: TNodeGraph;
@@ -160,7 +160,6 @@ type
     function IsMouseNearLinkStart(ALink: TNodeLink; SX, SY: integer): boolean;
 
     procedure ShowNodeSearchPopup(AScreenX, AScreenY: integer; AWorldX, AWorldY: single);
-    function CreateCompatibleNodeForPin(APin: TNodePin; AX, AY: single): TCustomNode;
     procedure ResetStateAfterGraphReload;
     procedure ClearHoverStates;
     procedure UpdateHoverStates(SX, SY: integer);
@@ -315,28 +314,25 @@ end;
 
 procedure TLazNodeEditor.AddNode(ANode: TCustomNode);
 begin
-  FGraph.ExecuteCommand(TAddNodeCommand.Create(FGraph, ANode));
+  if FController <> nil then
+    FController.AddNode(ANode)
+  else if (FGraph <> nil) and (ANode <> nil) then
+    FGraph.ExecuteCommand(TAddNodeCommand.Create(FGraph, ANode));
+
   Invalidate;
 end;
 
 procedure TLazNodeEditor.RemoveNode(ANode: TCustomNode);
-var
-  BeforeJSON, AfterJSON: string;
 begin
   if ANode = nil then
     Exit;
 
-  BeforeJSON := FGraph.CaptureJSONText;
+  if FController <> nil then
+    FController.RemoveNode(ANode)
+  else
+    FGraph.RemoveNode(ANode);
 
-  FSelectedNodes.Remove(ANode);
-  if FSelectedNode = ANode then
-    FSelectedNode := nil;
-
-  FGraph.RemoveNode(ANode);
-
-  AfterJSON := FGraph.CaptureJSONText;
-  FGraph.ExecuteJSONSnapshotCommand(BeforeJSON, AfterJSON, 'Remove node');
-
+  SyncControllerSelectionToView;
   NotifySelectionChanged;
   Invalidate;
 end;
@@ -346,21 +342,24 @@ begin
   if ALink = nil then
     Exit;
 
-  if FSelectedLink = ALink then
-    FSelectedLink := nil;
+  if FController <> nil then
+    FController.RemoveLink(ALink)
+  else
+    FGraph.ExecuteCommand(TRemoveLinkCommand.Create(FGraph, ALink));
 
-  FGraph.ExecuteCommand(TRemoveLinkCommand.Create(FGraph, ALink));
-
+  SyncControllerSelectionToView;
   NotifySelectionChanged;
   Invalidate;
 end;
 
 procedure TLazNodeEditor.Clear;
 begin
-  FGraph.Clear;
-  FSelectedNodes.Clear;
-  FSelectedNode := nil;
-  FSelectedLink := nil;
+  if FController <> nil then
+    FController.Clear
+  else
+    FGraph.Clear;
+
+  ResetStateAfterGraphReload;
   Invalidate;
 end;
 
@@ -385,84 +384,54 @@ begin
 end;
 
 function TLazNodeEditor.SaveToJSONText: string;
-var
-  Root: TJSONObject;
-  GraphObj: TJSONObject;
 begin
-  Root := TJSONObject.Create;
-  try
-    Root.Add('version', 2);
-    Root.Add('zoom', FZoom);
-    Root.Add('offsetX', FOffsetX);
-    Root.Add('offsetY', FOffsetY);
-
-    GraphObj := FGraph.SaveGraphToJSON;
-    Root.Add('graph', GraphObj);
-
-    Result := Root.AsJSON;
-  finally
-    Root.Free;
-  end;
+  if FController <> nil then
+    Result := FController.SaveToJSONText(FZoom, FOffsetX, FOffsetY)
+  else
+    Result := '';
 end;
 
 procedure TLazNodeEditor.LoadFromJSONText(const S: string);
 var
-  Data: TJSONData;
-  Root: TJSONObject;
-  GraphObj: TJSONObject;
-  BeforeJSON, AfterJSON: string;
+  Z: double;
+  OX, OY: integer;
 begin
   if Trim(S) = '' then
     Exit;
 
-  BeforeJSON := FGraph.CaptureJSONText;
-
-  Data := GetJSON(S);
-  try
-    Root := TJSONObject(Data);
-
-    FZoom := Root.Get('zoom', 1.0);
-    FOffsetX := Root.Get('offsetX', 0);
-    FOffsetY := Root.Get('offsetY', 0);
-
-    GraphObj := Root.Objects['graph'];
-    if GraphObj <> nil then
-      FGraph.LoadGraphFromJSON(GraphObj);
-
-    AfterJSON := FGraph.CaptureJSONText;
-    FGraph.ExecuteJSONSnapshotCommand(BeforeJSON, AfterJSON, 'Load graph');
-
-    ResetStateAfterGraphReload;
-    Invalidate;
-  finally
-    Data.Free;
+  if FController <> nil then
+  begin
+    FController.LoadFromJSONText(S, Z, OX, OY);
+    FZoom := Z;
+    FOffsetX := OX;
+    FOffsetY := OY;
   end;
+
+  ResetStateAfterGraphReload;
+  Invalidate;
 end;
 
 procedure TLazNodeEditor.SaveToFile(const AFileName: string);
-var
-  SL: TStringList;
 begin
-  SL := TStringList.Create;
-  try
-    SL.Text := SaveToJSONText;
-    SL.SaveToFile(AFileName);
-  finally
-    SL.Free;
-  end;
+  if FController <> nil then
+    FController.SaveToFile(AFileName, FZoom, FOffsetX, FOffsetY);
 end;
 
 procedure TLazNodeEditor.LoadFromFile(const AFileName: string);
 var
-  SL: TStringList;
+  Z: double;
+  OX, OY: integer;
 begin
-  SL := TStringList.Create;
-  try
-    SL.LoadFromFile(AFileName);
-    LoadFromJSONText(SL.Text);
-  finally
-    SL.Free;
+  if FController <> nil then
+  begin
+    FController.LoadFromFile(AFileName, Z, OX, OY);
+    FZoom := Z;
+    FOffsetX := OX;
+    FOffsetY := OY;
   end;
+
+  ResetStateAfterGraphReload;
+  Invalidate;
 end;
 
 procedure TLazNodeEditor.ClearSelectionInternal;
@@ -479,7 +448,7 @@ begin
   FSelectedLinks.Clear;
 
   if (FController <> nil) and ((FController.Selection.NodeCount > 0) or
-    FController.Selection.HasLink) then
+    (FController.Selection.LinkCount > 0)) then
     FController.Selection.Clear;
 end;
 
@@ -620,7 +589,6 @@ begin
   else
     AddLinkToSelection(ALink);
 
-  // Update primary link
   if FSelectedLinks.Count > 0 then
     FSelectedLink := FSelectedLinks[0]
   else
@@ -861,9 +829,6 @@ var
 begin
   ClearSnapGuides;
 
-  if not FSnapToNodes then
-    Exit;
-
   if FDragCommandNodes.Count = 0 then
     Exit;
 
@@ -898,7 +863,6 @@ begin
     OtherCenterX := (OtherLeft + OtherRight) * 0.5;
     OtherCenterY := (OtherTop + OtherBottom) * 0.5;
 
-    // X-axis snapping
     CandDX := OtherLeft - DragLeft;
     D := Abs(CandDX);
     if D < BestAbsDX then
@@ -926,7 +890,6 @@ begin
       BestGuideX := OtherCenterX;
     end;
 
-    // Y-axis snapping
     CandDY := OtherTop - DragTop;
     D := Abs(CandDY);
     if D < BestAbsDY then
@@ -957,16 +920,20 @@ begin
 
   if BestAbsDX <= FNodeSnapDistance then
   begin
-    AOffsetX := AOffsetX + BestDX;
     FGuideSnapXActive := True;
     FGuideSnapX := BestGuideX;
+
+    if FSnapToNodes then
+      AOffsetX := AOffsetX + BestDX;
   end;
 
   if BestAbsDY <= FNodeSnapDistance then
   begin
-    AOffsetY := AOffsetY + BestDY;
     FGuideSnapYActive := True;
     FGuideSnapY := BestGuideY;
+
+    if FSnapToNodes then
+      AOffsetY := AOffsetY + BestDY;
   end;
 end;
 
@@ -1629,36 +1596,33 @@ end;
 procedure TLazNodeEditor.OnContextInsertReroute(Sender: TObject);
 var
   N: TCustomNode;
-  BeforeJSON, AfterJSON: string;
 begin
-  if FSelectedLink = nil then
+  if (FController = nil) or (FSelectedLink = nil) then
     Exit;
 
-  BeforeJSON := FGraph.CaptureJSONText;
-
-  N := FGraph.CreateRerouteForLink(FSelectedLink, SnapWorldValue(FContextWorldPos.X),
+  N := FController.InsertRerouteOnLink(FSelectedLink,
+    SnapWorldValue(FContextWorldPos.X),
     SnapWorldValue(FContextWorldPos.Y));
 
-  FSelectedLink := nil;
-
-  AfterJSON := FGraph.CaptureJSONText;
-  FGraph.ExecuteJSONSnapshotCommand(BeforeJSON, AfterJSON, 'Insert reroute');
+  SyncControllerSelectionToView;
 
   if N <> nil then
-    SelectNodeInternal(N, False);
+    FSelectedLink := nil;
 
   NotifySelectionChanged;
   Invalidate;
 end;
 
 procedure TLazNodeEditor.OnContextAddComment(Sender: TObject);
-var
-  N: TCustomNode;
 begin
-  N := FGraph.Registry.CreateNode('comment', SnapWorldValue(FContextWorldPos.X),
+  if FController = nil then
+    Exit;
+
+  FController.AddCommentNode(
+    SnapWorldValue(FContextWorldPos.X),
     SnapWorldValue(FContextWorldPos.Y));
-  AddNode(N);
-  SelectNodeInternal(N, False);
+
+  SyncControllerSelectionToView;
   NotifySelectionChanged;
   Invalidate;
 end;
@@ -1725,63 +1689,6 @@ begin
     end;
   finally
     F.Free;
-  end;
-end;
-
-function TLazNodeEditor.CreateCompatibleNodeForPin(APin: TNodePin;
-  AX, AY: single): TCustomNode;
-var
-  i, j: integer;
-  It: TNodeRegistryItem;
-  TestNode: TCustomNode;
-  TestPin: TNodePin;
-  NeedDir: TPinDirection;
-begin
-  Result := nil;
-
-  if APin = nil then Exit;
-
-  if APin.Direction = pdOutput then
-    NeedDir := pdInput
-  else
-    NeedDir := pdOutput;
-
-  for i := 0 to FGraph.Registry.Count - 1 do
-  begin
-    It := FGraph.Registry.Item(i);
-
-    if SameText(It.NodeType, 'comment') then
-      Continue;
-
-    TestNode := FGraph.Registry.CreateNode(It.NodeType, AX, AY);
-    try
-      if NeedDir = pdInput then
-      begin
-        for j := 0 to TestNode.InputCount - 1 do
-        begin
-          TestPin := TestNode.GetInput(j);
-          if FGraph.CanConnect(APin, TestPin) then
-          begin
-            Result := FGraph.Registry.CreateNode(It.NodeType, AX, AY);
-            Exit;
-          end;
-        end;
-      end
-      else
-      begin
-        for j := 0 to TestNode.OutputCount - 1 do
-        begin
-          TestPin := TestNode.GetOutput(j);
-          if FGraph.CanConnect(APin, TestPin) then
-          begin
-            Result := FGraph.Registry.CreateNode(It.NodeType, AX, AY);
-            Exit;
-          end;
-        end;
-      end;
-    finally
-      TestNode.Free;
-    end;
   end;
 end;
 
@@ -1986,41 +1893,11 @@ begin
 end;
 
 function TLazNodeEditor.ValidateGraphToStrings(AStrings: TStrings): boolean;
-var
-  Issues: TList;
-  i: integer;
-  Issue: TGraphValidationIssue;
-  Prefix: string;
 begin
-  Issues := TList.Create;
-  try
-    Result := FGraph.ValidateGraphIssues(Issues);
-
-    if AStrings <> nil then
-    begin
-      AStrings.Clear;
-
-      if Issues.Count = 0 then
-        AStrings.Add('Graph is valid.');
-
-      for i := 0 to Issues.Count - 1 do
-      begin
-        Issue := TGraphValidationIssue(Issues[i]);
-
-        if Issue.Kind = gviError then
-          Prefix := 'Error: '
-        else
-          Prefix := 'Warning: ';
-
-        AStrings.Add(Prefix + Issue.MessageText);
-      end;
-    end;
-
-    for i := 0 to Issues.Count - 1 do
-      TObject(Issues[i]).Free;
-  finally
-    Issues.Free;
-  end;
+  if FController <> nil then
+    Result := FController.ValidateGraphToStrings(AStrings)
+  else
+    Result := False;
 end;
 
 function TLazNodeEditor.AddInputPinToNode(ANode: TCustomNode;
@@ -2028,12 +1905,10 @@ function TLazNodeEditor.AddInputPinToNode(ANode: TCustomNode;
 begin
   Result := nil;
 
-  if (FGraph = nil) or (ANode = nil) then
-    Exit;
+  if FController <> nil then
+    Result := FController.AddInputPinToNode(ANode, AName, ADataType, AKind);
 
-  Result := FGraph.AddDynamicInputPin(ANode, AName, ADataType, AKind);
-
-  if Assigned(FOnNodeChanged) then
+  if (Result <> nil) and Assigned(FOnNodeChanged) then
     FOnNodeChanged(Self, ANode);
 
   Invalidate;
@@ -2044,12 +1919,10 @@ function TLazNodeEditor.AddOutputPinToNode(ANode: TCustomNode;
 begin
   Result := nil;
 
-  if (FGraph = nil) or (ANode = nil) then
-    Exit;
+  if FController <> nil then
+    Result := FController.AddOutputPinToNode(ANode, AName, ADataType, AKind);
 
-  Result := FGraph.AddDynamicOutputPin(ANode, AName, ADataType, AKind);
-
-  if Assigned(FOnNodeChanged) then
+  if (Result <> nil) and Assigned(FOnNodeChanged) then
     FOnNodeChanged(Self, ANode);
 
   Invalidate;
@@ -2060,13 +1933,13 @@ var
   N: TCustomNode;
 begin
   Result := False;
+  N := nil;
 
-  if (FGraph = nil) or (APin = nil) then
-    Exit;
+  if APin <> nil then
+    N := TCustomNode(APin.OwnerNode);
 
-  N := TCustomNode(APin.OwnerNode);
-
-  Result := FGraph.RemoveDynamicPin(APin);
+  if FController <> nil then
+    Result := FController.RemovePinFromNode(APin);
 
   if Result and Assigned(FOnNodeChanged) and (N <> nil) then
     FOnNodeChanged(Self, N);
@@ -2130,7 +2003,6 @@ begin
       end
       else
       begin
-        // Normal click on link → select only this link
         ClearSelectionInternal;
         FSelectedLinks.Clear;
         FSelectedLink := Link;
@@ -2188,7 +2060,6 @@ begin
       FDragAnchorY := Y;
       FShowDragCoordinates := True;
 
-      // Remember initial position of the primary node for delta display
       if FSelectedNode <> nil then
         FDragStartWorldPos := PointF(FSelectedNode.X, FSelectedNode.Y)
       else if FSelectedNodes.Count > 0 then
@@ -2376,7 +2247,6 @@ var
   Moved: boolean;
   K: integer;
   DN: TCustomNode;
-  BeforeJSON, AfterJSON: string;
 begin
   inherited MouseUp(Button, Shift, X, Y);
 
@@ -2411,8 +2281,6 @@ begin
         if GetPinUnderMouse(X, Y, TargetNode, TargetPin) and
           (TargetPin <> nil) and (FReconnectFixedPin <> nil) then
         begin
-          BeforeJSON := FGraph.CaptureJSONText;
-
           if FReconnectMovingFromSide then
           begin
             if FGraph.CanConnect(TargetPin, FReconnectFixedPin) then
@@ -2429,9 +2297,6 @@ begin
               FGraph.AddLink(TNodeLink.Create(FReconnectFixedPin, TargetPin));
             end;
           end;
-
-          AfterJSON := FGraph.CaptureJSONText;
-          FGraph.ExecuteJSONSnapshotCommand(BeforeJSON, AfterJSON, 'Reconnect link');
         end;
 
         FTempFromPin := nil;
@@ -2462,9 +2327,12 @@ begin
       end
       else if FDraggingLink then
       begin
-        TargetNode := CreateCompatibleNodeForPin(FTempFromPin,
-          SnapWorldValue(ScreenToWorld(X, Y).X),
-          SnapWorldValue(ScreenToWorld(X, Y).Y));
+        if FController <> nil then
+          TargetNode := FController.CreateCompatibleNodeForPin(FTempFromPin,
+            SnapWorldValue(ScreenToWorld(X, Y).X),
+            SnapWorldValue(ScreenToWorld(X, Y).Y))
+        else
+          TargetNode := nil;
 
         if TargetNode <> nil then
         begin
@@ -2557,7 +2425,6 @@ begin
 
       if ssShift in Shift then
       begin
-        // Shift + box: only nodes
         for i := 0 to FGraph.Nodes.Count - 1 do
         begin
           N := TCustomNode(FGraph.Nodes[i]);
@@ -2567,7 +2434,6 @@ begin
       end
       else if ssCtrl in Shift then
       begin
-        // Ctrl + box: only links
         for i := 0 to FGraph.Links.Count - 1 do
         begin
           L := TNodeLink(FGraph.Links[i]);
@@ -2746,7 +2612,6 @@ begin
 
   if (Key = Ord('A')) and (ssCtrl in Shift) and (ssShift in Shift) then
   begin
-    // Ctrl + Shift + A -> only nodes
     ClearSelectionInternal;
 
     for i := 0 to FGraph.Nodes.Count - 1 do
@@ -2760,7 +2625,6 @@ begin
 
   if (Key = Ord('A')) and (ssCtrl in Shift) then
   begin
-    // Ctrl + A -> nodes + links
     ClearSelectionInternal;
 
     for i := 0 to FGraph.Nodes.Count - 1 do
@@ -2777,7 +2641,6 @@ begin
 
   if (Key = Ord('A')) and (ssShift in Shift) then
   begin
-    // Shift + A -> only links
     ClearSelectionInternal;
 
     for i := 0 to FGraph.Links.Count - 1 do

@@ -27,6 +27,7 @@ interface
 
 uses
   Classes, SysUtils, Forms, StdCtrls, Controls, Clipbrd, LazUTF8, LCLType,
+  fpjson, jsonparser,
   LazNodeEditor.Types,
   LazNodeEditor.Nodes,
   LazNodeEditor.Graph;
@@ -49,10 +50,36 @@ type
     procedure Redo;
     procedure ClearUndoRedo;
 
+    procedure AddNode(ANode: TCustomNode);
+    procedure RemoveNode(ANode: TCustomNode);
+    procedure RemoveLink(ALink: TNodeLink);
+    procedure Clear;
+
     procedure DeleteSelection;
     procedure CopySelectionToClipboard;
     procedure PasteFromClipboard(AX, AY: single);
     procedure DuplicateSelection(AX, AY: single);
+
+    function SaveToJSONText(AZoom: double; AOffsetX, AOffsetY: integer): string;
+    procedure LoadFromJSONText(const S: string; out AZoom: double;
+      out AOffsetX, AOffsetY: integer);
+    procedure SaveToFile(const AFileName: string; AZoom: double;
+      AOffsetX, AOffsetY: integer);
+    procedure LoadFromFile(const AFileName: string; out AZoom: double;
+      out AOffsetX, AOffsetY: integer);
+
+    function ValidateGraphToStrings(AStrings: TStrings): boolean;
+
+    function AddInputPinToNode(ANode: TCustomNode; const AName, ADataType: string;
+      AKind: TPinKind = pkData): TNodePin;
+    function AddOutputPinToNode(ANode: TCustomNode; const AName, ADataType: string;
+      AKind: TPinKind = pkData): TNodePin;
+    function RemovePinFromNode(APin: TNodePin): boolean;
+
+    function CreateCompatibleNodeForPin(APin: TNodePin; AX, AY: single): TCustomNode;
+
+    function InsertRerouteOnLink(ALink: TNodeLink; AX, AY: single): TCustomNode;
+    function AddCommentNode(AX, AY: single): TCustomNode;
 
     property Graph: TNodeGraph read FGraph;
     property Selection: TNodeSelectionModel read FSelection;
@@ -123,6 +150,314 @@ procedure TNodeEditorController.ClearUndoRedo;
 begin
   if FGraph <> nil then
     FGraph.ClearUndoRedo;
+end;
+
+procedure TNodeEditorController.AddNode(ANode: TCustomNode);
+begin
+  if (FGraph = nil) or (ANode = nil) then
+    Exit;
+
+  FGraph.ExecuteCommand(TAddNodeCommand.Create(FGraph, ANode));
+end;
+
+procedure TNodeEditorController.RemoveNode(ANode: TCustomNode);
+var
+  BeforeJSON, AfterJSON: string;
+begin
+  if (FGraph = nil) or (ANode = nil) then
+    Exit;
+
+  BeforeJSON := FGraph.CaptureJSONText;
+
+  if FSelection <> nil then
+    FSelection.RemoveNode(ANode);
+
+  FGraph.RemoveNode(ANode);
+
+  AfterJSON := FGraph.CaptureJSONText;
+  FGraph.ExecuteJSONSnapshotCommand(BeforeJSON, AfterJSON, 'Remove node');
+end;
+
+procedure TNodeEditorController.RemoveLink(ALink: TNodeLink);
+begin
+  if (FGraph = nil) or (ALink = nil) then
+    Exit;
+
+  if FSelection <> nil then
+    FSelection.RemoveLinkFromSelection(ALink);
+
+  FGraph.ExecuteCommand(TRemoveLinkCommand.Create(FGraph, ALink));
+end;
+
+procedure TNodeEditorController.Clear;
+begin
+  if FGraph = nil then
+    Exit;
+
+  FGraph.Clear;
+
+  if FSelection <> nil then
+    FSelection.Clear;
+end;
+
+function TNodeEditorController.SaveToJSONText(AZoom: double; AOffsetX,
+  AOffsetY: integer): string;
+var
+  Root: TJSONObject;
+  GraphObj: TJSONObject;
+begin
+  Root := TJSONObject.Create;
+  try
+    Root.Add('version', 2);
+    Root.Add('zoom', AZoom);
+    Root.Add('offsetX', AOffsetX);
+    Root.Add('offsetY', AOffsetY);
+
+    GraphObj := FGraph.SaveGraphToJSON;
+    Root.Add('graph', GraphObj);
+
+    Result := Root.AsJSON;
+  finally
+    Root.Free;
+  end;
+end;
+
+procedure TNodeEditorController.LoadFromJSONText(const S: string; out AZoom: double;
+  out AOffsetX, AOffsetY: integer);
+var
+  Data: TJSONData;
+  Root: TJSONObject;
+  GraphObj: TJSONObject;
+  BeforeJSON, AfterJSON: string;
+begin
+  AZoom := 1.0;
+  AOffsetX := 0;
+  AOffsetY := 0;
+
+  if (FGraph = nil) or (Trim(S) = '') then
+    Exit;
+
+  BeforeJSON := FGraph.CaptureJSONText;
+
+  Data := GetJSON(S);
+  try
+    Root := TJSONObject(Data);
+
+    AZoom := Root.Get('zoom', 1.0);
+    AOffsetX := Root.Get('offsetX', 0);
+    AOffsetY := Root.Get('offsetY', 0);
+
+    GraphObj := Root.Objects['graph'];
+    if GraphObj <> nil then
+      FGraph.LoadGraphFromJSON(GraphObj);
+
+    AfterJSON := FGraph.CaptureJSONText;
+    FGraph.ExecuteJSONSnapshotCommand(BeforeJSON, AfterJSON, 'Load graph');
+
+    if FSelection <> nil then
+      FSelection.Clear;
+  finally
+    Data.Free;
+  end;
+end;
+
+procedure TNodeEditorController.SaveToFile(const AFileName: string; AZoom: double;
+  AOffsetX, AOffsetY: integer);
+var
+  SL: TStringList;
+begin
+  SL := TStringList.Create;
+  try
+    SL.Text := SaveToJSONText(AZoom, AOffsetX, AOffsetY);
+    SL.SaveToFile(AFileName);
+  finally
+    SL.Free;
+  end;
+end;
+
+procedure TNodeEditorController.LoadFromFile(const AFileName: string; out AZoom: double;
+  out AOffsetX, AOffsetY: integer);
+var
+  SL: TStringList;
+begin
+  SL := TStringList.Create;
+  try
+    SL.LoadFromFile(AFileName);
+    LoadFromJSONText(SL.Text, AZoom, AOffsetX, AOffsetY);
+  finally
+    SL.Free;
+  end;
+end;
+
+function TNodeEditorController.ValidateGraphToStrings(AStrings: TStrings): boolean;
+var
+  Issues: TList;
+  i: integer;
+  Issue: TGraphValidationIssue;
+  Prefix: string;
+begin
+  Issues := TList.Create;
+  try
+    Result := FGraph.ValidateGraphIssues(Issues);
+
+    if AStrings <> nil then
+    begin
+      AStrings.Clear;
+
+      if Issues.Count = 0 then
+        AStrings.Add('Graph is valid.');
+
+      for i := 0 to Issues.Count - 1 do
+      begin
+        Issue := TGraphValidationIssue(Issues[i]);
+
+        if Issue.Kind = gviError then
+          Prefix := 'Error: '
+        else
+          Prefix := 'Warning: ';
+
+        AStrings.Add(Prefix + Issue.MessageText);
+      end;
+    end;
+
+    for i := 0 to Issues.Count - 1 do
+      TObject(Issues[i]).Free;
+  finally
+    Issues.Free;
+  end;
+end;
+
+function TNodeEditorController.AddInputPinToNode(ANode: TCustomNode;
+  const AName, ADataType: string; AKind: TPinKind): TNodePin;
+begin
+  Result := nil;
+
+  if (FGraph = nil) or (ANode = nil) then
+    Exit;
+
+  Result := FGraph.AddDynamicInputPin(ANode, AName, ADataType, AKind);
+end;
+
+function TNodeEditorController.AddOutputPinToNode(ANode: TCustomNode;
+  const AName, ADataType: string; AKind: TPinKind): TNodePin;
+begin
+  Result := nil;
+
+  if (FGraph = nil) or (ANode = nil) then
+    Exit;
+
+  Result := FGraph.AddDynamicOutputPin(ANode, AName, ADataType, AKind);
+end;
+
+function TNodeEditorController.RemovePinFromNode(APin: TNodePin): boolean;
+begin
+  Result := False;
+
+  if (FGraph = nil) or (APin = nil) then
+    Exit;
+
+  Result := FGraph.RemoveDynamicPin(APin);
+end;
+
+function TNodeEditorController.CreateCompatibleNodeForPin(APin: TNodePin;
+  AX, AY: single): TCustomNode;
+var
+  i, j: integer;
+  It: TNodeRegistryItem;
+  TestNode: TCustomNode;
+  TestPin: TNodePin;
+  NeedDir: TPinDirection;
+begin
+  Result := nil;
+
+  if APin = nil then Exit;
+
+  if APin.Direction = pdOutput then
+    NeedDir := pdInput
+  else
+    NeedDir := pdOutput;
+
+  for i := 0 to FGraph.Registry.Count - 1 do
+  begin
+    It := FGraph.Registry.Item(i);
+
+    if SameText(It.NodeType, 'comment') then
+      Continue;
+
+    TestNode := FGraph.Registry.CreateNode(It.NodeType, AX, AY);
+    try
+      if NeedDir = pdInput then
+      begin
+        for j := 0 to TestNode.InputCount - 1 do
+        begin
+          TestPin := TestNode.GetInput(j);
+          if FGraph.CanConnect(APin, TestPin) then
+          begin
+            Result := FGraph.Registry.CreateNode(It.NodeType, AX, AY);
+            Exit;
+          end;
+        end;
+      end
+      else
+      begin
+        for j := 0 to TestNode.OutputCount - 1 do
+        begin
+          TestPin := TestNode.GetOutput(j);
+          if FGraph.CanConnect(TestPin, APin) then
+          begin
+            Result := FGraph.Registry.CreateNode(It.NodeType, AX, AY);
+            Exit;
+          end;
+        end;
+      end;
+    finally
+      TestNode.Free;
+    end;
+  end;
+end;
+
+function TNodeEditorController.InsertRerouteOnLink(ALink: TNodeLink;
+  AX, AY: single): TCustomNode;
+var
+  BeforeJSON, AfterJSON: string;
+begin
+  Result := nil;
+
+  if (FGraph = nil) or (ALink = nil) then
+    Exit;
+
+  BeforeJSON := FGraph.CaptureJSONText;
+  Result := FGraph.CreateRerouteForLink(ALink, AX, AY);
+  AfterJSON := FGraph.CaptureJSONText;
+
+  FGraph.ExecuteJSONSnapshotCommand(BeforeJSON, AfterJSON, 'Insert reroute');
+
+  if FSelection <> nil then
+  begin
+    FSelection.Clear;
+    if Result <> nil then
+      FSelection.SelectNode(Result, False);
+  end;
+end;
+
+function TNodeEditorController.AddCommentNode(AX, AY: single): TCustomNode;
+begin
+  Result := nil;
+
+  if FGraph = nil then
+    Exit;
+
+  Result := FGraph.Registry.CreateNode('comment', AX, AY);
+  if Result <> nil then
+  begin
+    AddNode(Result);
+
+    if FSelection <> nil then
+    begin
+      FSelection.Clear;
+      FSelection.SelectNode(Result, False);
+    end;
+  end;
 end;
 
 procedure TNodeEditorController.DeleteSelection;
