@@ -647,6 +647,7 @@ type
     FPanning: boolean;
     FPanStartX, FPanStartY: integer;
     FRightMouseMoved: boolean;
+    FRightButtonDown: boolean;
 
     FTempFromPin: TNodePin;
     FTempMousePos: TPoint;
@@ -730,6 +731,7 @@ type
 
     function SnapWorldValue(V: single): single;
     function SnapWorldPoint(const P: TPointF): TPointF;
+    procedure OnPopupClose(Sender: TObject);
 
 
 
@@ -741,6 +743,9 @@ type
     procedure MouseUp(Button: TMouseButton; Shift: TShiftState; X, Y: integer); override;
     function DoMouseWheel(Shift: TShiftState; WheelDelta: integer;
       MousePos: TPoint): boolean; override;
+    procedure CancelMouseOperations(const KeepSelectionRect: boolean = False);
+    procedure DoExit; override;
+    procedure MouseLeave; override;
     procedure KeyDown(var Key: word; Shift: TShiftState); override;
 
   public
@@ -2335,9 +2340,10 @@ begin
   RegisterNodeEx(ANodeType, ACaption, '', '', '', AClass);
 end;
 
-procedure TNodeRegistry.RegisterNodeEx(const ANodeType, ACaption,
-  ACategory, ADescription, ATags: string; AClass: TCustomNodeClass;
-  AColor: TColor; AHidden: boolean; ADeprecated: boolean; AVersion: integer);
+procedure TNodeRegistry.RegisterNodeEx(
+  const ANodeType, ACaption, ACategory, ADescription, ATags: string;
+  AClass: TCustomNodeClass; AColor: TColor; AHidden: boolean;
+  ADeprecated: boolean; AVersion: integer);
 var
   It: TNodeDefinition;
   TagsSL: TStringList;
@@ -4740,7 +4746,7 @@ begin
   FController := TNodeEditorController.Create(FGraph);
   FController.Selection.OnChanged := @ControllerSelectionChanged;
 
-  FSelectedNodes := TCustomNodeList.Create(False); // does not own nodes
+  FSelectedNodes := TCustomNodeList.Create(False);
   FDragCommandNodes := TCustomNodeList.Create(False);
 
   FZoom := 1.0;
@@ -4765,7 +4771,12 @@ begin
   FDraggingLink := False;
   FTempStartMousePos := Point(0, 0);
 
+  FPanning := False;
+  FRightMouseMoved := False;
+  FRightButtonDown := False;
+
   FPopupMenu := TPopupMenu.Create(Self);
+  FPopupMenu.OnClose:=@OnPopupClose;
   BuildContextMenu;
   PopupMenu := FPopupMenu;
 end;
@@ -5141,6 +5152,11 @@ function TLazNodeEditor.SnapWorldPoint(const P: TPointF): TPointF;
 begin
   Result.X := SnapWorldValue(P.X);
   Result.Y := SnapWorldValue(P.Y);
+end;
+
+procedure TLazNodeEditor.OnPopupClose(Sender: TObject);
+begin
+  CancelMouseOperations(False);
 end;
 
 function TLazNodeEditor.GetNodeUnderMouse(SX, SY: integer): TCustomNode;
@@ -5887,6 +5903,12 @@ begin
   FReconnectLink := nil;
   FReconnectFixedPin := nil;
 
+  FPanning := False;
+  FRightMouseMoved := False;
+  FRightButtonDown := False;
+  MouseCapture := False;
+  Cursor := crDefault;
+
   ClearHoverStates;
   NotifySelectionChanged;
 end;
@@ -6145,6 +6167,7 @@ var
 begin
   inherited MouseDown(Button, Shift, X, Y);
   SetFocus;
+
   if Button = mbLeft then
   begin
     Node := GetNodeResizeUnderMouse(X, Y);
@@ -6170,6 +6193,7 @@ begin
       Invalidate;
       Exit;
     end;
+
     if GetPinUnderMouse(X, Y, Node, Pin) then
     begin
       FTempFromPin := Pin;
@@ -6179,6 +6203,7 @@ begin
       Invalidate;
       Exit;
     end;
+
     if GetLinkUnderMouse(X, Y, Link) then
     begin
       SelectLinkInternal(Link);
@@ -6207,6 +6232,7 @@ begin
       Invalidate;
       Exit;
     end;
+
     Node := GetNodeUnderMouse(X, Y);
     if Node <> nil then
     begin
@@ -6216,6 +6242,7 @@ begin
         SelectNodeInternal(Node, False)
       else
         FSelectedNode := Node;
+
       FDraggingNode := True;
       FDragUndoPushed := False;
       FDragStartX := X;
@@ -6236,7 +6263,10 @@ begin
       Invalidate;
       Exit;
     end;
-    if not (ssShift in Shift) then ClearSelectionInternal;
+
+    if not (ssShift in Shift) then
+      ClearSelectionInternal;
+
     FBoxSelecting := True;
     FBoxStart := Point(X, Y);
     FBoxCurrent := Point(X, Y);
@@ -6254,8 +6284,9 @@ begin
       Invalidate;
     end;
 
-    FPanning := True;
+    FRightButtonDown := True;
     FRightMouseMoved := False;
+    FPanning := False;
     FPanStartX := X;
     FPanStartY := Y;
   end;
@@ -6280,10 +6311,19 @@ begin
       Cursor := crDefault;
   end;
 
+  if FRightButtonDown and (not FPanning) then
+  begin
+    if (Abs(X - FPanStartX) > 2) or (Abs(Y - FPanStartY) > 2) then
+    begin
+      FPanning := True;
+      FRightMouseMoved := True;
+      MouseCapture := True;
+      Cursor := crSizeAll;
+    end;
+  end;
+
   if FPanning then
   begin
-    if (Abs(X - FPanStartX) > 1) or (Abs(Y - FPanStartY) > 1) then
-      FRightMouseMoved := True;
     FOffsetX := FOffsetX + (X - FPanStartX);
     FOffsetY := FOffsetY + (Y - FPanStartY);
     FPanStartX := X;
@@ -6312,6 +6352,7 @@ begin
   begin
     Dx := (X - FDragStartX) / FZoom;
     Dy := (Y - FDragStartY) / FZoom;
+
     for i := 0 to FSelectedNodes.Count - 1 do
     begin
       N := TCustomNode(FSelectedNodes[i]);
@@ -6324,8 +6365,10 @@ begin
         N.Y := SnapWorldValue(N.Y);
       end;
 
-      if Assigned(FOnNodeChanged) then FOnNodeChanged(Self, N);
+      if Assigned(FOnNodeChanged) then
+        FOnNodeChanged(Self, N);
     end;
+
     FDragStartX := X;
     FDragStartY := Y;
     Invalidate;
@@ -6362,6 +6405,7 @@ var
   BeforeJSON, AfterJSON: string;
 begin
   inherited MouseUp(Button, Shift, X, Y);
+
   if Button = mbLeft then
   begin
     if FResizingNode then
@@ -6385,6 +6429,7 @@ begin
       Invalidate;
       Exit;
     end;
+
     if FTempFromPin <> nil then
     begin
       if FReconnectingLink then
@@ -6530,13 +6575,17 @@ begin
     if FBoxSelecting then
     begin
       R := NormalizeRect(Rect(FBoxStart.X, FBoxStart.Y, FBoxCurrent.X, FBoxCurrent.Y));
-      if not (ssShift in Shift) then ClearSelectionInternal;
+
+      if not (ssShift in Shift) then
+        ClearSelectionInternal;
+
       for i := 0 to FGraph.Nodes.Count - 1 do
       begin
         N := TCustomNode(FGraph.Nodes[i]);
         if RectIntersects(R, N.GetScreenBounds(FZoom, FOffsetX, FOffsetY)) then
           SelectNodeInternal(N, True);
       end;
+
       FBoxSelecting := False;
       NotifySelectionChanged;
       Invalidate;
@@ -6544,13 +6593,32 @@ begin
   end
   else if Button = mbRight then
   begin
-    FPanning := False;
+    FRightButtonDown := False;
 
     if not FRightMouseMoved then
     begin
       FContextWorldPos := ScreenToWorld(X, Y);
+
+      FPanning := False;
+      MouseCapture := False;
+      Cursor := crDefault;
+
       FPopupMenu.PopUp(Mouse.CursorPos.X, Mouse.CursorPos.Y);
+
+      FPanning := False;
+      FRightMouseMoved := False;
+      MouseCapture := False;
+      Cursor := crDefault;
+    end
+    else
+    begin
+      FPanning := False;
+      FRightMouseMoved := False;
+      MouseCapture := False;
+      Cursor := crDefault;
     end;
+
+    Invalidate;
   end;
 end;
 
@@ -6571,6 +6639,50 @@ begin
   if Assigned(FOnZoomChanged) then
     FOnZoomChanged(Self);
   Invalidate;
+end;
+
+procedure TLazNodeEditor.CancelMouseOperations(const KeepSelectionRect: boolean
+  );
+begin
+  FPanning := False;
+  FRightButtonDown := False;
+  FRightMouseMoved := False;
+
+  FDraggingNode := False;
+  FDragUndoPushed := False;
+  FDragCommandNodes.Clear;
+  SetLength(FDragOldPositions, 0);
+
+  FTempFromPin := nil;
+  FDraggingLink := False;
+  FReconnectingLink := False;
+  FReconnectLink := nil;
+  FReconnectFixedPin := nil;
+  FReconnectMovingFromSide := False;
+
+  FResizingNode := False;
+  FResizeNode := nil;
+
+  if not KeepSelectionRect then
+    FBoxSelecting := False;
+
+  MouseCapture := False;
+  Cursor := crDefault;
+  Invalidate;
+end;
+
+procedure TLazNodeEditor.DoExit;
+begin
+  CancelMouseOperations;
+  inherited DoExit;
+end;
+
+procedure TLazNodeEditor.MouseLeave;
+begin
+  inherited MouseLeave;
+
+  if not (csDesigning in ComponentState) then
+    CancelMouseOperations(False);
 end;
 
 procedure TLazNodeEditor.KeyDown(var Key: word; Shift: TShiftState);
