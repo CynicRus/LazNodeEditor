@@ -49,7 +49,8 @@ type
     FOffsetX, FOffsetY: integer;
 
     FSelectedNode: TCustomNode;
-    FSelectedLink: TNodeLink;
+    FSelectedLink: TNodeLink;           // primary selected link (first one)
+    FSelectedLinks: TNodeLinkList;      // support for multiple selected links
     FSelectedNodes: TCustomNodeList;
 
     FDraggingNode: boolean;
@@ -136,7 +137,13 @@ type
 
     procedure ClearSelectionInternal;
     procedure SelectNodeInternal(ANode: TCustomNode; AAppend: boolean);
-    procedure SelectLinkInternal(ALink: TNodeLink);
+    procedure SelectLinkInternal(ALink: TNodeLink; AKeepNodes: boolean = False);
+    procedure ToggleNodeSelection(ANode: TCustomNode);
+    procedure AddNodeToSelection(ANode: TCustomNode);
+    procedure RemoveNodeFromSelection(ANode: TCustomNode);
+    procedure ToggleLinkSelection(ALink: TNodeLink);
+    procedure AddLinkToSelection(ALink: TNodeLink);
+    procedure RemoveLinkFromSelection(ALink: TNodeLink);
     function IsMouseNearLinkStart(ALink: TNodeLink; SX, SY: integer): boolean;
 
     procedure ShowNodeSearchPopup(AScreenX, AScreenY: integer; AWorldX, AWorldY: single);
@@ -231,6 +238,7 @@ begin
   FController.Selection.OnChanged := @ControllerSelectionChanged;
 
   FSelectedNodes := TCustomNodeList.Create(False);
+  FSelectedLinks := TNodeLinkList.Create(False);
   FDragCommandNodes := TCustomNodeList.Create(False);
 
   FZoom := 1.0;
@@ -268,6 +276,7 @@ destructor TLazNodeEditor.Destroy;
 begin
   FController.Free;
   FSelectedNodes.Free;
+  FSelectedLinks.Free;
   FDragCommandNodes.Free;
   FGraph.Free;
   inherited Destroy;
@@ -436,6 +445,7 @@ begin
   FSelectedNodes.Clear;
   FSelectedNode := nil;
   FSelectedLink := nil;
+  FSelectedLinks.Clear;
 
   if (FController <> nil) and ((FController.Selection.NodeCount > 0) or
     FController.Selection.HasLink) then
@@ -451,12 +461,12 @@ end;
 
 procedure TLazNodeEditor.DeleteSelection;
 begin
-  if FController <> nil then
-  begin
-    FController.DeleteSelection;
-    SyncControllerSelectionToView;
-    Invalidate;
-  end;
+  if FController = nil then
+    Exit;
+
+  FController.DeleteSelection;
+  SyncControllerSelectionToView;
+  Invalidate;
 end;
 
 procedure TLazNodeEditor.SelectNodeInternal(ANode: TCustomNode; AAppend: boolean);
@@ -490,20 +500,132 @@ begin
     FController.Selection.SelectNode(ANode, AAppend);
 end;
 
-procedure TLazNodeEditor.SelectLinkInternal(ALink: TNodeLink);
+procedure TLazNodeEditor.SelectLinkInternal(ALink: TNodeLink; AKeepNodes: boolean = False);
 var
   i: integer;
 begin
-  for i := 0 to FSelectedNodes.Count - 1 do
-    if FSelectedNodes[i] <> nil then
-      TCustomNode(FSelectedNodes[i]).Selected := False;
+  if not AKeepNodes then
+  begin
+    for i := 0 to FSelectedNodes.Count - 1 do
+      if FSelectedNodes[i] <> nil then
+        TCustomNode(FSelectedNodes[i]).Selected := False;
 
-  FSelectedNodes.Clear;
-  FSelectedNode := nil;
+    FSelectedNodes.Clear;
+    FSelectedNode := nil;
+  end;
+
   FSelectedLink := ALink;
 
   if FController <> nil then
     FController.Selection.SelectLink(ALink);
+end;
+
+procedure TLazNodeEditor.ToggleNodeSelection(ANode: TCustomNode);
+begin
+  if ANode = nil then Exit;
+
+  if FSelectedNodes.IndexOf(ANode) >= 0 then
+  begin
+    RemoveNodeFromSelection(ANode);
+  end
+  else
+  begin
+    AddNodeToSelection(ANode);
+  end;
+
+  NotifySelectionChanged;
+  Invalidate;
+end;
+
+procedure TLazNodeEditor.AddNodeToSelection(ANode: TCustomNode);
+begin
+  if ANode = nil then Exit;
+
+  if FSelectedNodes.IndexOf(ANode) < 0 then
+  begin
+    FSelectedNodes.Add(ANode);
+    ANode.Selected := True;
+  end;
+
+  FSelectedNode := ANode;
+  FSelectedLink := nil;
+
+  if FController <> nil then
+    FController.Selection.SelectNode(ANode, True);
+end;
+
+procedure TLazNodeEditor.RemoveNodeFromSelection(ANode: TCustomNode);
+var
+  idx: integer;
+begin
+  if ANode = nil then Exit;
+
+  idx := FSelectedNodes.IndexOf(ANode);
+  if idx >= 0 then
+  begin
+    ANode.Selected := False;
+    FSelectedNodes.Delete(idx);
+  end;
+
+  if FSelectedNode = ANode then
+  begin
+    if FSelectedNodes.Count > 0 then
+      FSelectedNode := TCustomNode(FSelectedNodes[FSelectedNodes.Count-1])
+    else
+      FSelectedNode := nil;
+  end;
+
+  if FController <> nil then
+    FController.Selection.RemoveNode(ANode);
+end;
+
+procedure TLazNodeEditor.ToggleLinkSelection(ALink: TNodeLink);
+begin
+  if ALink = nil then Exit;
+
+  if FSelectedLinks.IndexOf(ALink) >= 0 then
+    RemoveLinkFromSelection(ALink)
+  else
+    AddLinkToSelection(ALink);
+
+  // Update primary link
+  if FSelectedLinks.Count > 0 then
+    FSelectedLink := FSelectedLinks[0]
+  else
+    FSelectedLink := nil;
+
+  NotifySelectionChanged;
+  Invalidate;
+end;
+
+procedure TLazNodeEditor.AddLinkToSelection(ALink: TNodeLink);
+begin
+  if (ALink = nil) or (FSelectedLinks.IndexOf(ALink) >= 0) then Exit;
+
+  FSelectedLinks.Add(ALink);
+  if FSelectedLink = nil then
+    FSelectedLink := ALink;
+
+  if FController <> nil then
+    FController.Selection.AddLinkToSelection(ALink);
+end;
+
+procedure TLazNodeEditor.RemoveLinkFromSelection(ALink: TNodeLink);
+begin
+  if ALink = nil then Exit;
+
+  FSelectedLinks.Remove(ALink);
+
+  if FSelectedLink = ALink then
+  begin
+    if FSelectedLinks.Count > 0 then
+      FSelectedLink := FSelectedLinks[0]
+    else
+      FSelectedLink := nil;
+  end;
+
+  if FController <> nil then
+    FController.Selection.RemoveLinkFromSelection(ALink);
 end;
 
 function TLazNodeEditor.IsMouseNearLinkStart(ALink: TNodeLink; SX, SY: integer): boolean;
@@ -569,7 +691,12 @@ begin
   end;
 
   if FController.Selection.HasLink then
+  begin
     FSelectedLink := FController.Selection.SelectedLink;
+    FSelectedLinks.Clear;
+    for i := 0 to FController.Selection.LinkCount - 1 do
+      FSelectedLinks.Add(FController.Selection.GetLink(i));
+  end;
 
   NotifySelectionChanged;
   Invalidate;
@@ -582,9 +709,7 @@ end;
 
 function TLazNodeEditor.SelectedLinkCount: integer;
 begin
-  if FSelectedLink <> nil then Result := 1
-  else
-    Result := 0;
+  Result := FSelectedLinks.Count;
 end;
 
 function TLazNodeEditor.GetSelectedNode(Index: integer): TCustomNode;
@@ -853,7 +978,7 @@ begin
     if (Link.FromPin = nil) or (Link.ToPin = nil) then Continue;
     GetLinkBezierPoints(Link, P0, P1, P2, P3);
 
-    if Link = FSelectedLink then
+    if FSelectedLinks.IndexOf(Link) >= 0 then
     begin
       Canvas.Pen.Color := clRed;
       Canvas.Pen.Width := 5;
@@ -1687,7 +1812,21 @@ begin
 
     if GetLinkUnderMouse(X, Y, Link) then
     begin
-      SelectLinkInternal(Link);
+      if (ssCtrl in Shift) or (ssShift in Shift) then
+      begin
+        ToggleLinkSelection(Link);
+      end
+      else
+      begin
+        // Normal click on link → select only this link (clear nodes and other links)
+        ClearSelectionInternal;
+        FSelectedLinks.Clear;
+        FSelectedLink := Link;
+        FSelectedLinks.Add(Link);
+        if FController <> nil then
+          FController.Selection.SelectLink(Link, False);
+      end;
+
       FDraggingNode := False;
 
       FReconnectingLink := True;
@@ -1717,12 +1856,17 @@ begin
     Node := GetNodeUnderMouse(X, Y);
     if Node <> nil then
     begin
-      if ssCtrl in Shift then
-        SelectNodeInternal(Node, True)
-      else if FSelectedNodes.IndexOf(Node) < 0 then
-        SelectNodeInternal(Node, False)
+      if (ssCtrl in Shift) or (ssShift in Shift) then
+      begin
+        ToggleNodeSelection(Node);
+      end
       else
-        FSelectedNode := Node;
+      begin
+        if FSelectedNodes.IndexOf(Node) < 0 then
+          SelectNodeInternal(Node, False)
+        else
+          FSelectedNode := Node;
+      end;
 
       FDraggingNode := True;
       FDragUndoPushed := False;
@@ -2076,14 +2220,26 @@ begin
     begin
       R := NormalizeRect(Rect(FBoxStart.X, FBoxStart.Y, FBoxCurrent.X, FBoxCurrent.Y));
 
-      if not (ssShift in Shift) then
+      if not (ssCtrl in Shift) and not (ssShift in Shift) then
         ClearSelectionInternal;
 
       for i := 0 to FGraph.Nodes.Count - 1 do
       begin
         N := TCustomNode(FGraph.Nodes[i]);
         if RectIntersects(R, N.GetScreenBounds(FZoom, FOffsetX, FOffsetY)) then
-          SelectNodeInternal(N, True);
+          AddNodeToSelection(N);
+      end;
+
+      if (ssShift in Shift) or (ssCtrl in Shift) then
+      begin
+        for i := 0 to FGraph.Links.Count - 1 do
+        begin
+          L := TNodeLink(FGraph.Links[i]);
+          if GetLinkUnderMouse(FBoxCurrent.X, FBoxCurrent.Y, L) then
+          begin
+            AddLinkToSelection(L);
+          end;
+        end;
       end;
 
       FBoxSelecting := False;
@@ -2185,6 +2341,8 @@ begin
 end;
 
 procedure TLazNodeEditor.KeyDown(var Key: word; Shift: TShiftState);
+var
+  i: integer;
 begin
   inherited KeyDown(Key, Shift);
   if (Key = VK_DELETE) then
@@ -2234,6 +2392,26 @@ begin
     Key := 0;
     Exit;
   end;
+
+  if (Key = Ord('A')) and (ssCtrl in Shift) then
+  begin
+    ClearSelectionInternal;
+    for i := 0 to FGraph.Nodes.Count - 1 do
+      SelectNodeInternal(TCustomNode(FGraph.Nodes[i]), True);
+    NotifySelectionChanged;
+    Invalidate;
+    Key := 0;
+    Exit;
+  end;
+
+  if Key = VK_ESCAPE then
+  begin
+    ClearSelection;
+    Key := 0;
+    Exit;
+  end;
 end;
 
 end.
+
+

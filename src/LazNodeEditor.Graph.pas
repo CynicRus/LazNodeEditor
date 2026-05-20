@@ -26,7 +26,7 @@ unit LazNodeEditor.Graph;
 interface
 
 uses
-  Classes, SysUtils, Graphics, Types, fpjson, jsonparser, math,
+  Classes, SysUtils, Graphics, Types, fpjson, jsonparser, Math,
   Generics.Collections,
   LazNodeEditor.Types,
   LazNodeEditor.Nodes;
@@ -258,7 +258,7 @@ type
   TNodeSelectionModel = class
   private
     FNodes: TCustomNodeList;
-    FSelectedLink: TNodeLink;
+    FSelectedLinks: TNodeLinkList;
     FOnChanged: TNotifyEvent;
     procedure NotifyChanged;
   public
@@ -267,16 +267,22 @@ type
 
     procedure Clear;
     procedure SelectNode(ANode: TCustomNode; AAppend: boolean);
-    procedure SelectLink(ALink: TNodeLink);
+    procedure SelectLink(ALink: TNodeLink; AAppend: boolean = False);
+    procedure ToggleLink(ALink: TNodeLink);
+    procedure AddLinkToSelection(ALink: TNodeLink);
+    procedure RemoveLinkFromSelection(ALink: TNodeLink);
     procedure RemoveNode(ANode: TCustomNode);
 
     function NodeCount: integer;
     function GetNode(Index: integer): TCustomNode;
+    function LinkCount: integer;
+    function GetLink(Index: integer): TNodeLink;
     function HasLink: boolean;
-    function SelectedLink: TNodeLink;
+    function SelectedLink: TNodeLink; // returns first selected link
 
     property OnChanged: TNotifyEvent read FOnChanged write FOnChanged;
     property Nodes: TCustomNodeList read FNodes;
+    property Links: TNodeLinkList read FSelectedLinks;
   end;
 
   { TNodeClipboardService }
@@ -300,14 +306,18 @@ var
 begin
   A := TCustomNode(Item1);
   B := TCustomNode(Item2);
-
-  if A.ZOrder < B.ZOrder then
+  if A.Selected and not B.Selected then
+    Result := 1
+  else if not A.Selected and B.Selected then
     Result := -1
-  else if A.ZOrder > B.ZOrder then
+  else if (A.ZOrder < B.ZOrder) then
+    Result := -1
+  else if (A.ZOrder > B.ZOrder) then
     Result := 1
   else
     Result := 0;
 end;
+
 
 procedure BuildSortedNodeList(AGraph: TNodeGraph; AList: TList);
 var
@@ -1966,10 +1976,12 @@ constructor TNodeSelectionModel.Create;
 begin
   inherited Create;
   FNodes := TCustomNodeList.Create(False);
+  FSelectedLinks := TNodeLinkList.Create(False);
 end;
 
 destructor TNodeSelectionModel.Destroy;
 begin
+  FSelectedLinks.Free;
   FNodes.Free;
   inherited Destroy;
 end;
@@ -1988,7 +2000,8 @@ begin
     if FNodes[i] <> nil then
       FNodes[i].Selected := False;
   FNodes.Clear;
-  FSelectedLink := nil;
+
+  FSelectedLinks.Clear;
   NotifyChanged;
 end;
 
@@ -2005,10 +2018,8 @@ begin
         FNodes[i].Selected := False;
 
     FNodes.Clear;
-    FSelectedLink := nil;
-  end
-  else
-    FSelectedLink := nil;
+    FSelectedLinks.Clear;
+  end;
 
   if FNodes.IndexOf(ANode) < 0 then
   begin
@@ -2019,32 +2030,62 @@ begin
   NotifyChanged;
 end;
 
-procedure TNodeSelectionModel.SelectLink(ALink: TNodeLink);
-var
-  i: integer;
+procedure TNodeSelectionModel.SelectLink(ALink: TNodeLink; AAppend: boolean = False);
 begin
-  for i := 0 to FNodes.Count - 1 do
-    if FNodes[i] <> nil then
-      FNodes[i].Selected := False;
+  if ALink = nil then Exit;
 
-  FNodes.Clear;
-  FSelectedLink := ALink;
+  if not AAppend then
+  begin
+    FSelectedLinks.Clear;
+  end;
+
+  if FSelectedLinks.IndexOf(ALink) < 0 then
+    FSelectedLinks.Add(ALink);
 
   NotifyChanged;
 end;
 
+procedure TNodeSelectionModel.ToggleLink(ALink: TNodeLink);
+begin
+  if ALink = nil then Exit;
+
+  if FSelectedLinks.IndexOf(ALink) >= 0 then
+    RemoveLinkFromSelection(ALink)
+  else
+    AddLinkToSelection(ALink);
+end;
+
+procedure TNodeSelectionModel.AddLinkToSelection(ALink: TNodeLink);
+begin
+  if (ALink = nil) or (FSelectedLinks.IndexOf(ALink) >= 0) then Exit;
+  FSelectedLinks.Add(ALink);
+  NotifyChanged;
+end;
+
+procedure TNodeSelectionModel.RemoveLinkFromSelection(ALink: TNodeLink);
+begin
+  if ALink = nil then Exit;
+  FSelectedLinks.Remove(ALink);
+  NotifyChanged;
+end;
+
 procedure TNodeSelectionModel.RemoveNode(ANode: TCustomNode);
+var
+  i: integer;
 begin
   if ANode = nil then Exit;
   FNodes.Remove(ANode);
-  if FSelectedLink <> nil then
+
+  // Remove links connected to this node from selection
+  for i := FSelectedLinks.Count - 1 downto 0 do
   begin
-    if (((FSelectedLink.FromPin <> nil) and
-      (FSelectedLink.FromPin.OwnerNode = ANode)) or
-      ((FSelectedLink.ToPin <> nil) and (FSelectedLink.ToPin.OwnerNode =
-      ANode))) then
-      FSelectedLink := nil;
+    if (FSelectedLinks[i].FromPin <> nil) and
+      (FSelectedLinks[i].FromPin.OwnerNode = ANode) or
+      (FSelectedLinks[i].ToPin <> nil) and
+      (FSelectedLinks[i].ToPin.OwnerNode = ANode) then
+      FSelectedLinks.Delete(i);
   end;
+
   NotifyChanged;
 end;
 
@@ -2061,14 +2102,30 @@ begin
     Result := nil;
 end;
 
+function TNodeSelectionModel.LinkCount: integer;
+begin
+  Result := FSelectedLinks.Count;
+end;
+
+function TNodeSelectionModel.GetLink(Index: integer): TNodeLink;
+begin
+  if (Index >= 0) and (Index < FSelectedLinks.Count) then
+    Result := FSelectedLinks[Index]
+  else
+    Result := nil;
+end;
+
 function TNodeSelectionModel.HasLink: boolean;
 begin
-  Result := FSelectedLink <> nil;
+  Result := FSelectedLinks.Count > 0;
 end;
 
 function TNodeSelectionModel.SelectedLink: TNodeLink;
 begin
-  Result := FSelectedLink;
+  if FSelectedLinks.Count > 0 then
+    Result := FSelectedLinks[0]
+  else
+    Result := nil;
 end;
 
 { TNodeClipboardService }

@@ -32,7 +32,9 @@ uses
   LazNodeEditor.Graph;
 
 type
+
   { TNodeEditorController }
+
   TNodeEditorController = class
   private
     FGraph: TNodeGraph;
@@ -129,32 +131,40 @@ var
   BeforeJSON, AfterJSON: string;
   NodeToRemove: TCustomNode;
   LinkToRemove: TNodeLink;
+  LinksToDelete: TNodeLinkList;
 begin
   if (FGraph = nil) or (FSelection = nil) then
     Exit;
 
-  if (FSelection.NodeCount = 0) and (not FSelection.HasLink) then
+  if (FSelection.NodeCount = 0) and (FSelection.LinkCount = 0) then
     Exit;
 
   BeforeJSON := FGraph.CaptureJSONText;
+  LinksToDelete := TNodeLinkList.Create(False);
+  try
+    for i := 0 to FSelection.LinkCount - 1 do
+    begin
+      LinkToRemove := FSelection.GetLink(i);
+      if LinkToRemove <> nil then
+        LinksToDelete.Add(LinkToRemove);
+    end;
 
-  if FSelection.HasLink then
-  begin
-    LinkToRemove := FSelection.SelectedLink;
-    FGraph.RemoveLink(LinkToRemove);
-  end
-  else
-  begin
+    for i := LinksToDelete.Count - 1 downto 0 do
+      FGraph.RemoveLink(LinksToDelete[i]);
+
     for i := FSelection.NodeCount - 1 downto 0 do
     begin
       NodeToRemove := FSelection.GetNode(i);
-      FGraph.RemoveNode(NodeToRemove);
+      if NodeToRemove <> nil then
+        FGraph.RemoveNode(NodeToRemove);
     end;
-  end;
 
-  FSelection.Clear;
-  AfterJSON := FGraph.CaptureJSONText;
-  FGraph.ExecuteJSONSnapshotCommand(BeforeJSON, AfterJSON, 'Delete selection');
+    FSelection.Clear;
+    AfterJSON := FGraph.CaptureJSONText;
+    FGraph.ExecuteJSONSnapshotCommand(BeforeJSON, AfterJSON, 'Delete selection');
+  finally
+    LinksToDelete.Free;
+  end;
 end;
 
 procedure TNodeEditorController.CopySelectionToClipboard;
