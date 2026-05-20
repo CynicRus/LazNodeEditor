@@ -6,7 +6,13 @@ interface
 
 uses
   Classes, SysUtils, Forms, Controls, Graphics, Dialogs, StdCtrls, ExtCtrls,
-  ComCtrls, Menus, LazNodeEditor, LCLIntf, LCLType, types;
+  ComCtrls, Menus, LCLIntf, LCLType, types,
+  LazNodeEditor.Types,
+  LazNodeEditor.Nodes,
+  LazNodeEditor.Graph,
+  LazNodeEditor.Editor,
+  LazNodeEditor.Inspector,
+  LazNodeEditor.Controller;
 
 type
 
