@@ -61,6 +61,10 @@ type
     FDragCommandNodes: TCustomNodeList;
     FDragOldPositions: array of TPointF;
 
+
+    FDragStartWorldPos: TPointF;
+    FShowDragCoordinates: boolean;
+
     FPanning: boolean;
     FPanStartX, FPanStartY: integer;
     FRightMouseMoved: boolean;
@@ -1125,6 +1129,10 @@ var
   N: TCustomNode;
   R: TRect;
   Sorted: TList;
+  CX, CY, DX, DY: single;
+  Txt: String;
+  TX,TY: integer;
+  ScreenPos: TPoint;
 
   procedure PaintResizeHandles;
   var
@@ -1200,6 +1208,32 @@ begin
 
   DrawTempLink;
   DrawBoxSelect;
+
+    if FDraggingNode and FShowDragCoordinates and (FSelectedNode <> nil) and
+    ((GetKeyState(VK_MENU) and $8000) <> 0) then
+  begin
+    Canvas.Font.Color := clBlack;
+    Canvas.Font.Size := 9;
+    Canvas.Brush.Style := bsSolid;
+    Canvas.Brush.Color := $00FFFFCC;
+
+    CX := FSelectedNode.X;
+    CY := FSelectedNode.Y;
+    DX := CX - FDragStartWorldPos.X;
+    DY := CY - FDragStartWorldPos.Y;
+
+    Txt := Format('X: %.1f   Y: %.1f   (Δ %.1f, %.1f)',
+      [CX, CY, DX, DY]);
+
+    ScreenPos := WorldToScreen(CX, CY);
+    TX := ScreenPos.X + Round(10 * FZoom);
+    TY := ScreenPos.Y - Round(25 * FZoom);
+
+    Canvas.FillRect(Rect(TX - 4, TY - 2, TX + Canvas.TextWidth(Txt) + 6, TY + 16));
+    Canvas.TextOut(TX, TY, Txt);
+
+    Canvas.Brush.Style := bsSolid;
+  end;
 end;
 
 function TLazNodeEditor.GetResizeHandleRect(ANode: TCustomNode): TRect;
@@ -1543,6 +1577,7 @@ begin
   FTempFromPin := nil;
   FDraggingLink := False;
   FDraggingNode := False;
+  FShowDragCoordinates := False;
   FBoxSelecting := False;
   FResizingNode := False;
   FResizeNode := nil;
@@ -1916,6 +1951,13 @@ begin
       FDragStartY := Y;
       FDragAnchorX := X;
       FDragAnchorY := Y;
+      FShowDragCoordinates := True;
+
+      // Remember initial position of the primary node for delta display
+      if FSelectedNode <> nil then
+        FDragStartWorldPos := PointF(FSelectedNode.X, FSelectedNode.Y)
+      else if FSelectedNodes.Count > 0 then
+        FDragStartWorldPos := PointF(TCustomNode(FSelectedNodes[0]).X, TCustomNode(FSelectedNodes[0]).Y);
 
       FDragCommandNodes.Clear;
       SetLength(FDragOldPositions, FSelectedNodes.Count);
@@ -2255,6 +2297,7 @@ begin
 
     FDraggingNode := False;
     FDragUndoPushed := False;
+    FShowDragCoordinates := False;
     FDragCommandNodes.Clear;
     SetLength(FDragOldPositions, 0);
 
