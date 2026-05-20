@@ -624,6 +624,7 @@ type
   TNodeChangedEvent = procedure(Sender: TObject; ANode: TCustomNode) of object;
 
   { TLazNodeEditor — VIEW + CONTROLLER }
+
   TLazNodeEditor = class(TCustomControl)
   private
     FGraph: TNodeGraph;
@@ -639,6 +640,7 @@ type
 
     FDraggingNode: boolean;
     FDragStartX, FDragStartY: integer;
+    FDragAnchorX, FDragAnchorY: integer;
     FDragUndoPushed: boolean;
 
     FDragCommandNodes: TCustomNodeList;
@@ -6248,6 +6250,8 @@ begin
       FDragUndoPushed := False;
       FDragStartX := X;
       FDragStartY := Y;
+      FDragAnchorX := X;
+      FDragAnchorY := Y;
 
       FDragCommandNodes.Clear;
       SetLength(FDragOldPositions, FSelectedNodes.Count);
@@ -6257,7 +6261,7 @@ begin
         FDragCommandNodes.Add(FSelectedNodes[i]);
         FDragOldPositions[i] :=
           PointF(TCustomNode(FSelectedNodes[i]).X,
-          TCustomNode(FSelectedNodes[i]).Y);
+                 TCustomNode(FSelectedNodes[i]).Y);
       end;
 
       NotifySelectionChanged;
@@ -6298,6 +6302,7 @@ var
   i: integer;
   N: TCustomNode;
   Dx, Dy: single;
+  BaseX, BaseY: single;
 begin
   inherited MouseMove(Shift, X, Y);
 
@@ -6351,27 +6356,43 @@ begin
   end
   else if FDraggingNode and (FSelectedNodes.Count > 0) then
   begin
-    Dx := (X - FDragStartX) / FZoom;
-    Dy := (Y - FDragStartY) / FZoom;
-
-    for i := 0 to FSelectedNodes.Count - 1 do
+    if FSnapToGrid and not (ssAlt in Shift) then
     begin
-      N := TCustomNode(FSelectedNodes[i]);
-      N.X := N.X + Dx;
-      N.Y := N.Y + Dy;
+      Dx := (X - FDragAnchorX) / FZoom;
+      Dy := (Y - FDragAnchorY) / FZoom;
 
-      if FSnapToGrid and not (ssAlt in Shift) then
+      for i := 0 to FDragCommandNodes.Count - 1 do
       begin
-        N.X := SnapWorldValue(N.X);
-        N.Y := SnapWorldValue(N.Y);
+        N := TCustomNode(FDragCommandNodes[i]);
+        BaseX := FDragOldPositions[i].X;
+        BaseY := FDragOldPositions[i].Y;
+
+        N.X := SnapWorldValue(BaseX + Dx);
+        N.Y := SnapWorldValue(BaseY + Dy);
+
+        if Assigned(FOnNodeChanged) then
+          FOnNodeChanged(Self, N);
+      end;
+    end
+    else
+    begin
+      Dx := (X - FDragStartX) / FZoom;
+      Dy := (Y - FDragStartY) / FZoom;
+
+      for i := 0 to FSelectedNodes.Count - 1 do
+      begin
+        N := TCustomNode(FSelectedNodes[i]);
+        N.X := N.X + Dx;
+        N.Y := N.Y + Dy;
+
+        if Assigned(FOnNodeChanged) then
+          FOnNodeChanged(Self, N);
       end;
 
-      if Assigned(FOnNodeChanged) then
-        FOnNodeChanged(Self, N);
+      FDragStartX := X;
+      FDragStartY := Y;
     end;
 
-    FDragStartX := X;
-    FDragStartY := Y;
     Invalidate;
   end
   else if FTempFromPin <> nil then
