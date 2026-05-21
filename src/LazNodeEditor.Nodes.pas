@@ -527,6 +527,9 @@ end;
 function TCustomNode.HitTest(WX, WY: single): boolean;
 var
   CX, CY, RX, RY: single;
+  DX, DY: single;
+  RX2, RY2: single;
+  L, T, R, B: single;
 begin
   if VisualKind = nvReroute then
   begin
@@ -535,8 +538,20 @@ begin
     RX := Max(16, Width * 0.5 + 8);
     RY := Max(16, Height * 0.5 + 8);
 
-    Result :=
-      (Sqr((WX - CX) / RX) + Sqr((WY - CY) / RY)) <= 1.0;
+    L := CX - RX;
+    T := CY - RY;
+    R := CX + RX;
+    B := CY + RY;
+
+    if (WX < L) or (WY < T) or (WX > R) or (WY > B) then
+      Exit(False);
+
+    DX := WX - CX;
+    DY := WY - CY;
+    RX2 := RX * RX;
+    RY2 := RY * RY;
+
+    Result := (DX * DX * RY2 + DY * DY * RX2) <= (RX2 * RY2);
     Exit;
   end;
 
