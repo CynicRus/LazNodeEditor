@@ -27,12 +27,13 @@ unit LazNodeEditor.Inspector;
 interface
 
 uses
-  Classes, SysUtils, Graphics, Controls, Forms, ExtCtrls, StdCtrls, Grids, Dialogs, StrUtils,
-  Math, fpjson,
+  Classes, SysUtils, Graphics, Controls, Forms, ExtCtrls, StdCtrls, Grids,
+  Dialogs, StrUtils, Math, fpjson,
   LazNodeEditor.Types,
   LazNodeEditor.Nodes,
   LazNodeEditor.Graph,
-  LazNodeEditor.Editor;
+  LazNodeEditor.Editor,
+  LazNodeEditor.Controller;
 
 type
   { TLazNodeInspector }
@@ -97,6 +98,8 @@ type
     procedure SetEditor(AValue: TLazNodeEditor);
     procedure ClearAllSections;
     procedure ShowNoSelection;
+    procedure ExecuteNodePropertyChange(AEditor: TLazNodeEditor; ANode: TCustomNode;
+      const AOldJSON, ANewJSON: string);
 
     function MakeLabel(AParent: TWinControl; const AText: string;
       ALeft, ATop, AWidth: integer): TLabel;
@@ -161,6 +164,7 @@ begin
     FValuesGrid.Options := FValuesGrid.Options + [goEditing]
   else
     FValuesGrid.Options := FValuesGrid.Options - [goEditing];
+
   CanSelect := True;
 end;
 
@@ -179,7 +183,6 @@ end;
 function TLazNodeInspector.EditWidth(AParent: TWinControl; ALeft: integer): integer;
 begin
   Result := SafeClientWidth(AParent) - ALeft - 10;
-
   if Result < 40 then
     Result := 40;
 end;
@@ -187,19 +190,35 @@ end;
 procedure TLazNodeInspector.ClearAllSections;
 begin
   FLblTypeVal.Caption := '—';
+
   FTitleEdit.Text := '';
   FXEdit.Text := '';
   FYEdit.Text := '';
   FWidthEdit.Text := '';
   FHeightEdit.Text := '';
+
   FHeaderColorPanel.Color := clBtnFace;
   FBodyColorPanel.Color := clBtnFace;
   FCollapsedCheck.Checked := False;
+
   FCommentMemo.Text := '';
 
   FPinsGrid.RowCount := 1;
+  if FPinsGrid.ColCount >= 4 then
+  begin
+    FPinsGrid.Cells[0, 0] := 'Name';
+    FPinsGrid.Cells[1, 0] := 'Dir';
+    FPinsGrid.Cells[2, 0] := 'Type';
+    FPinsGrid.Cells[3, 0] := 'Kind';
+  end;
 
   FValuesGrid.RowCount := 1;
+  if FValuesGrid.ColCount >= 3 then
+  begin
+    FValuesGrid.Cells[0, 0] := 'Name';
+    FValuesGrid.Cells[1, 0] := 'Kind';
+    FValuesGrid.Cells[2, 0] := 'Value';
+  end;
 end;
 
 procedure TLazNodeInspector.ShowNoSelection;
@@ -217,9 +236,28 @@ end;
 
 procedure TLazNodeInspector.SetEditor(AValue: TLazNodeEditor);
 begin
-  if FEditor = AValue then Exit;
+  if FEditor = AValue then
+    Exit;
+
   FEditor := AValue;
   RefreshFromSelection;
+end;
+
+procedure TLazNodeInspector.ExecuteNodePropertyChange(AEditor: TLazNodeEditor;
+  ANode: TCustomNode; const AOldJSON, ANewJSON: string);
+begin
+  if (AEditor = nil) or (ANode = nil) then
+    Exit;
+
+  if AOldJSON = ANewJSON then
+    Exit;
+
+  if AEditor.Controller <> nil then
+    AEditor.Controller.ExecuteCommand(
+      TChangeNodePropertyCommand.Create(AEditor.Graph, ANode, AOldJSON, ANewJSON))
+  else if AEditor.Graph <> nil then
+    AEditor.Graph.ExecuteCommand(
+      TChangeNodePropertyCommand.Create(AEditor.Graph, ANode, AOldJSON, ANewJSON));
 end;
 
 procedure TLazNodeInspector.RefreshFromSelection;
@@ -229,6 +267,7 @@ var
   P: TNodePin;
   V: TNodeValue;
   VStr: string;
+  RowIndex: integer;
 begin
   if (FEditor = nil) or (FEditor.SelectedNodeCount <> 1) then
   begin
@@ -245,65 +284,98 @@ begin
 
   FUpdating := True;
   try
-    // Info
+    ClearAllSections;
+
     FLblTypeVal.Caption := N.NodeType;
 
-    // Basic
     FTitleEdit.Text := N.Title;
     FXEdit.Text := FormatFloat('0.##', N.X);
     FYEdit.Text := FormatFloat('0.##', N.Y);
     FWidthEdit.Text := IntToStr(N.Width);
     FHeightEdit.Text := IntToStr(N.Height);
 
-    // Visual
     FHeaderColorPanel.Color := N.HeaderColor;
     FBodyColorPanel.Color := N.BodyColor;
     FCollapsedCheck.Checked := N.Collapsed;
 
-    // Comment
     FCommentMemo.Text := N.CommentText;
 
-    // Pins
     FPinsGrid.RowCount := Max(2, 1 + N.InputCount + N.OutputCount);
+
+    RowIndex := 1;
     for i := 0 to N.InputCount - 1 do
     begin
       P := N.GetInput(i);
-      FPinsGrid.Cells[0, i + 1] := P.EffectiveDisplayName;
-      FPinsGrid.Cells[1, i + 1] := 'In';
-      FPinsGrid.Cells[2, i + 1] :=
-        specialize IfThen<string>(P.PinType <> nil, P.PinType.TypeId, P.DataType);
-      FPinsGrid.Cells[3, i + 1] :=
-        specialize IfThen<string>(P.Kind = pkExec, 'exec', 'data');
+      if P = nil then
+        Continue;
+
+      FPinsGrid.Cells[0, RowIndex] := P.EffectiveDisplayName;
+      FPinsGrid.Cells[1, RowIndex] := 'In';
+
+      if P.PinType <> nil then
+        FPinsGrid.Cells[2, RowIndex] := P.PinType.TypeId
+      else
+        FPinsGrid.Cells[2, RowIndex] := P.DataType;
+
+      if P.Kind = pkExec then
+        FPinsGrid.Cells[3, RowIndex] := 'exec'
+      else
+        FPinsGrid.Cells[3, RowIndex] := 'data';
+
+      Inc(RowIndex);
     end;
+
     for i := 0 to N.OutputCount - 1 do
     begin
       P := N.GetOutput(i);
-      FPinsGrid.Cells[0, N.InputCount + i + 1] := P.EffectiveDisplayName;
-      FPinsGrid.Cells[1, N.InputCount + i + 1] := 'Out';
-      FPinsGrid.Cells[2, N.InputCount + i + 1] :=
-        specialize IfThen<string>(P.PinType <> nil, P.PinType.TypeId, P.DataType);
-      FPinsGrid.Cells[3, N.InputCount + i + 1] :=
-        specialize IfThen<string>(P.Kind = pkExec, 'exec', 'data');
+      if P = nil then
+        Continue;
+
+      FPinsGrid.Cells[0, RowIndex] := P.EffectiveDisplayName;
+      FPinsGrid.Cells[1, RowIndex] := 'Out';
+
+      if P.PinType <> nil then
+        FPinsGrid.Cells[2, RowIndex] := P.PinType.TypeId
+      else
+        FPinsGrid.Cells[2, RowIndex] := P.DataType;
+
+      if P.Kind = pkExec then
+        FPinsGrid.Cells[3, RowIndex] := 'exec'
+      else
+        FPinsGrid.Cells[3, RowIndex] := 'data';
+
+      Inc(RowIndex);
     end;
 
-    // Values
     if N.ValueCount > 0 then
     begin
       FValuesGrid.RowCount := 1 + N.ValueCount;
+
       for i := 0 to N.ValueCount - 1 do
       begin
         V := N.GetValue(i);
+        if V = nil then
+          Continue;
+
         FValuesGrid.Cells[0, i + 1] := V.Name;
         FValuesGrid.Cells[1, i + 1] := NodeValueKindToStr(V.Kind);
 
         case V.Kind of
-          nvkFloat: VStr := FormatFloat('0.######', V.FloatValue);
-          nvkInteger: VStr := IntToStr(V.IntegerValue);
-          nvkString: VStr := V.StringValue;
-          nvkBoolean: VStr := specialize IfThen<string>(V.BooleanValue, 'true', 'false');
-          nvkJSON: VStr := V.JSONValue;
-          else
-            VStr := '';
+          nvkFloat:
+            VStr := FormatFloat('0.######', V.FloatValue);
+          nvkInteger:
+            VStr := IntToStr(V.IntegerValue);
+          nvkString:
+            VStr := V.StringValue;
+          nvkBoolean:
+            if V.BooleanValue then
+              VStr := 'true'
+            else
+              VStr := 'false';
+          nvkJSON:
+            VStr := V.JSONValue;
+        else
+          VStr := '';
         end;
 
         FValuesGrid.Cells[2, i + 1] := VStr;
@@ -323,15 +395,14 @@ procedure TLazNodeInspector.HeaderColorClick(Sender: TObject);
 var
   D: TColorDialog;
 begin
-  if (FEditor = nil) or (FEditor.SelectedNodeCount <> 1) then Exit;
+  if (FEditor = nil) or (FEditor.SelectedNodeCount <> 1) then
+    Exit;
 
   D := TColorDialog.Create(nil);
   try
     D.Color := FHeaderColorPanel.Color;
     if D.Execute then
-    begin
       FHeaderColorPanel.Color := D.Color;
-    end;
   finally
     D.Free;
   end;
@@ -341,15 +412,14 @@ procedure TLazNodeInspector.BodyColorClick(Sender: TObject);
 var
   D: TColorDialog;
 begin
-  if (FEditor = nil) or (FEditor.SelectedNodeCount <> 1) then Exit;
+  if (FEditor = nil) or (FEditor.SelectedNodeCount <> 1) then
+    Exit;
 
   D := TColorDialog.Create(nil);
   try
     D.Color := FBodyColorPanel.Color;
     if D.Execute then
-    begin
       FBodyColorPanel.Color := D.Color;
-    end;
   finally
     D.Free;
   end;
@@ -364,11 +434,15 @@ var
   V: TNodeValue;
   VStr: string;
 begin
-  if FUpdating then Exit;
-  if (FEditor = nil) or (FEditor.SelectedNodeCount <> 1) then Exit;
+  if FUpdating then
+    Exit;
+
+  if (FEditor = nil) or (FEditor.SelectedNodeCount <> 1) then
+    Exit;
 
   N := FEditor.GetSelectedNode(0);
-  if N = nil then Exit;
+  if N = nil then
+    Exit;
 
   OldObj := TJSONObject.Create;
   try
@@ -392,18 +466,26 @@ begin
 
   for i := 0 to N.ValueCount - 1 do
   begin
-    if (i + 1) < FValuesGrid.RowCount then
-    begin
-      V := N.GetValue(i);
-      VStr := Trim(FValuesGrid.Cells[2, i + 1]);
+    if (i + 1) >= FValuesGrid.RowCount then
+      Continue;
 
-      case V.Kind of
-        nvkFloat: V.FloatValue := StrToFloatDef(VStr, V.FloatValue);
-        nvkInteger: V.IntegerValue := StrToInt64Def(VStr, V.IntegerValue);
-        nvkString: V.StringValue := VStr;
-        nvkBoolean: V.BooleanValue := SameText(VStr, 'true') or (VStr = '1');
-        nvkJSON: V.JSONValue := VStr;
-      end;
+    V := N.GetValue(i);
+    if V = nil then
+      Continue;
+
+    VStr := Trim(FValuesGrid.Cells[2, i + 1]);
+
+    case V.Kind of
+      nvkFloat:
+        V.FloatValue := StrToFloatDef(VStr, V.FloatValue);
+      nvkInteger:
+        V.IntegerValue := StrToInt64Def(VStr, V.IntegerValue);
+      nvkString:
+        V.StringValue := VStr;
+      nvkBoolean:
+        V.BooleanValue := SameText(VStr, 'true') or (VStr = '1');
+      nvkJSON:
+        V.JSONValue := VStr;
     end;
   end;
 
@@ -415,17 +497,12 @@ begin
     NewObj.Free;
   end;
 
-  if OldJSON <> NewJSON then
-  begin
-    FEditor.Graph.ExecuteCommand(
-      TChangeNodePropertyCommand.Create(FEditor.Graph, N, OldJSON, NewJSON));
-  end;
+  ExecuteNodePropertyChange(FEditor, N, OldJSON, NewJSON);
 
   if Assigned(FEditor.OnNodeChanged) then
     FEditor.OnNodeChanged(FEditor, N);
 
   FEditor.Invalidate;
-
   RefreshFromSelection;
 end;
 
@@ -477,12 +554,12 @@ begin
     ATop,
     SafeClientWidth(AParent) - GROUP_RIGHT,
     GH
-    );
+  );
   FGrpInfo.Anchors := [akLeft, akTop, akRight];
 
   Inc(ATop, GH + 6);
 
-  MakeLabel(FGrpInfo, 'Type:', 8, CAPTION_H div 2, LW);
+  FLblType := MakeLabel(FGrpInfo, 'Type:', 8, CAPTION_H div 2, LW);
 
   FLblTypeVal := TLabel.Create(Self);
   FLblTypeVal.Parent := FGrpInfo;
@@ -491,7 +568,7 @@ begin
     CAPTION_H div 2,
     EditWidth(FGrpInfo, EX),
     20
-    );
+  );
   FLblTypeVal.Anchors := [akLeft, akTop, akRight];
   FLblTypeVal.Caption := '—';
   FLblTypeVal.Font.Style := [fsBold];
@@ -521,7 +598,7 @@ begin
     ATop,
     SafeClientWidth(AParent) - GROUP_RIGHT,
     GH
-    );
+  );
   FGrpBasic.Anchors := [akLeft, akTop, akRight];
 
   Inc(ATop, GH + 6);
@@ -529,23 +606,23 @@ begin
   EW := EditWidth(FGrpBasic, EX);
   Y := CAPTION_H;
 
-  MakeLabel(FGrpBasic, 'Title:', 8, Y + 4, LW);
+  FLblTitle := MakeLabel(FGrpBasic, 'Title:', 8, Y + 4, LW);
   FTitleEdit := MakeEdit(FGrpBasic, EX, Y, EW);
   Inc(Y, ROW);
 
-  MakeLabel(FGrpBasic, 'X:', 8, Y + 4, LW);
+  FLblX := MakeLabel(FGrpBasic, 'X:', 8, Y + 4, LW);
   FXEdit := MakeEdit(FGrpBasic, EX, Y, EW);
   Inc(Y, ROW);
 
-  MakeLabel(FGrpBasic, 'Y:', 8, Y + 4, LW);
+  FLblY := MakeLabel(FGrpBasic, 'Y:', 8, Y + 4, LW);
   FYEdit := MakeEdit(FGrpBasic, EX, Y, EW);
   Inc(Y, ROW);
 
-  MakeLabel(FGrpBasic, 'Width:', 8, Y + 4, LW);
+  FLblWidth := MakeLabel(FGrpBasic, 'Width:', 8, Y + 4, LW);
   FWidthEdit := MakeEdit(FGrpBasic, EX, Y, EW);
   Inc(Y, ROW);
 
-  MakeLabel(FGrpBasic, 'Height:', 8, Y + 4, LW);
+  FLblHeight := MakeLabel(FGrpBasic, 'Height:', 8, Y + 4, LW);
   FHeightEdit := MakeEdit(FGrpBasic, EX, Y, EW);
 end;
 
@@ -573,7 +650,7 @@ begin
     ATop,
     SafeClientWidth(AParent) - GROUP_RIGHT,
     GH
-    );
+  );
   FGrpVisual.Anchors := [akLeft, akTop, akRight];
 
   Inc(ATop, GH + 6);
@@ -581,12 +658,12 @@ begin
   EW := EditWidth(FGrpVisual, EX);
   Y := CAPTION_H;
 
-  MakeLabel(FGrpVisual, 'Header Color:', 8, Y + 4, LW);
+  FLblHeaderColor := MakeLabel(FGrpVisual, 'Header Color:', 8, Y + 4, LW);
   FHeaderColorPanel := MakeColorPanel(FGrpVisual, EX, Y, EW);
   FHeaderColorPanel.OnClick := @HeaderColorClick;
   Inc(Y, ROW);
 
-  MakeLabel(FGrpVisual, 'Body Color:', 8, Y + 4, LW);
+  FLblBodyColor := MakeLabel(FGrpVisual, 'Body Color:', 8, Y + 4, LW);
   FBodyColorPanel := MakeColorPanel(FGrpVisual, EX, Y, EW);
   FBodyColorPanel.OnClick := @BodyColorClick;
   Inc(Y, ROW);
@@ -598,7 +675,7 @@ begin
     Y + 2,
     SafeClientWidth(FGrpVisual) - 16,
     22
-    );
+  );
   FCollapsedCheck.Caption := 'Collapsed';
   FCollapsedCheck.Anchors := [akLeft, akTop, akRight];
 end;
@@ -624,19 +701,19 @@ begin
     ATop,
     SafeClientWidth(AParent) - GROUP_RIGHT,
     GH
-    );
+  );
   FGrpComment.Anchors := [akLeft, akTop, akRight];
 
   Inc(ATop, GH + 6);
 
   FCommentMemo := TMemo.Create(Self);
-  FCommentMemo.Parent := AParent;
+  FCommentMemo.Parent := FGrpComment;
   FCommentMemo.SetBounds(
     8,
     CAPTION_H div 2,
     SafeClientWidth(FGrpComment) - 16,
     MEMO_H
-    );
+  );
   FCommentMemo.Anchors := [akLeft, akTop, akRight];
   FCommentMemo.ScrollBars := ssVertical;
   FCommentMemo.WordWrap := True;
@@ -662,7 +739,7 @@ begin
     ATop,
     SafeClientWidth(AParent) - GROUP_RIGHT,
     GH
-    );
+  );
   FGrpPins.Anchors := [akLeft, akTop, akRight];
 
   Inc(ATop, GH + 6);
@@ -674,7 +751,7 @@ begin
     CAPTION_H div 2,
     SafeClientWidth(FGrpPins) - 16,
     GRID_H
-    );
+  );
   FPinsGrid.Anchors := [akLeft, akTop, akRight];
   FPinsGrid.RowCount := 1;
   FPinsGrid.ColCount := 4;
@@ -714,7 +791,7 @@ begin
     ATop,
     SafeClientWidth(AParent) - GROUP_RIGHT,
     GH
-    );
+  );
   FGrpValues.Anchors := [akLeft, akTop, akRight];
 
   Inc(ATop, GH + 6);
@@ -726,7 +803,7 @@ begin
     CAPTION_H div 2,
     SafeClientWidth(FGrpValues) - 16,
     GRID_H
-    );
+  );
   FValuesGrid.Anchors := [akLeft, akTop, akRight];
   FValuesGrid.RowCount := 1;
   FValuesGrid.ColCount := 3;
