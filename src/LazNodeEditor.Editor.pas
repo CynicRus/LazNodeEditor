@@ -72,8 +72,6 @@ type
     FZoom: double;
     FOffsetX, FOffsetY: integer;
 
-    //FController.PinSelection: TPinSelectionModel;
-
     // Interaction State
     FDraggingNode: boolean;
     FDragStartX, FDragStartY: integer;
@@ -157,6 +155,9 @@ type
     FLinkHoverColor: TColor;
     FLinkThickness: integer;
     FLinkSelectedThickness: integer;
+    FHoveredPinCompatible: boolean;
+    FPinCompatibleColor: TColor;
+    FPinIncompatibleColor: TColor;
 
     // Custom Draw Events
     FOnDrawNode: TNodeEditorDrawNodeEvent;
@@ -348,6 +349,10 @@ type
       write FPinSelectedColor default clLime;
     property PinHoverColor: TColor read FPinHoverColor write FPinHoverColor default
       clAqua;
+    property PinCompatibleColor: TColor read FPinCompatibleColor
+      write FPinCompatibleColor default clAqua;
+    property PinIncompatibleColor: TColor read FPinIncompatibleColor
+      write FPinIncompatibleColor default clRed;
 
     property LinkColor: TColor read FLinkColor write FLinkColor default clYellow;
     property LinkSelectedColor: TColor read FLinkSelectedColor
@@ -501,6 +506,10 @@ begin
   FPinExecColor := clWhite;
   FPinSelectedColor := clLime;
   FPinHoverColor := clAqua;
+
+  FHoveredPinCompatible := False;
+  FPinCompatibleColor := clAqua;
+  FPinIncompatibleColor := clRed;
 
   FLinkColor := clYellow;
   FLinkSelectedColor := clRed;
@@ -1170,7 +1179,8 @@ begin
   begin
     N := TCustomNode(FGraph.Nodes[i]);
     if N <> nil then
-      N.Selected := (FController.Selection <> nil) and FController.Selection.ContainsNode(N);
+      N.Selected := (FController.Selection <> nil) and
+        FController.Selection.ContainsNode(N);
   end;
 end;
 
@@ -1338,73 +1348,86 @@ end;
 procedure TLazNodeEditor.DrawNodePins(ANode: TCustomNode);
 var
   i: integer;
-  P: TNodePin;
-  PX, PY: integer;
   PinRadiusScaled: integer;
-  Handled: boolean;
-  Center: TPoint;
-  IsSelected: boolean;
-  IsHovered: boolean;
+
+  procedure DrawSinglePin(const APin: TNodePin; const AIsInput: boolean);
+  var
+    PX, PY: integer;
+    Center: TPoint;
+    IsSelected: boolean;
+    IsHovered: boolean;
+    Handled: boolean;
+  begin
+    if (APin = nil) or APin.Hidden then
+      Exit;
+
+    if AIsInput then
+    begin
+      PX := Round(ANode.X * FZoom) + FOffsetX;
+      PY := Round((ANode.Y + APin.LocalY) * FZoom) + FOffsetY;
+    end
+    else
+    begin
+      PX := Round((ANode.X + ANode.Width) * FZoom) + FOffsetX;
+      PY := Round((ANode.Y + APin.LocalY) * FZoom) + FOffsetY;
+    end;
+
+    Center := Point(PX, PY);
+
+    IsSelected := FController.PinSelection.Contains(APin);
+    IsHovered := (FHoveredPin = APin) and (FTempFromPin = nil);
+
+    Handled := False;
+    if Assigned(FOnDrawPin) then
+      FOnDrawPin(Self, Canvas, APin, Center, PinRadiusScaled,
+        IsSelected, IsHovered, ANode.Highlighted, Handled);
+
+    if not Handled then
+      DefaultDrawPin(APin, Center, PinRadiusScaled, IsSelected, IsHovered,
+        ANode.Highlighted);
+
+    if (FTempFromPin <> nil) and (FHoveredPin = APin) then
+    begin
+      Canvas.Brush.Style := bsClear;
+      Canvas.Pen.Width := Max(2, FPinBorderWidth + 2);
+      if FHoveredPinCompatible then
+        Canvas.Pen.Color := FPinCompatibleColor
+      else
+        Canvas.Pen.Color := FPinIncompatibleColor;
+
+      Canvas.Ellipse(
+        Center.X - PinRadiusScaled - 5,
+        Center.Y - PinRadiusScaled - 5,
+        Center.X + PinRadiusScaled + 5,
+        Center.Y + PinRadiusScaled + 5
+      );
+      Canvas.Pen.Width := 1;
+    end;
+
+    Canvas.Brush.Style := bsClear;
+    if AIsInput then
+      Canvas.TextOut(PX + PinRadiusScaled + 6,
+        PY - Canvas.TextHeight(APin.Name) div 2, APin.Name)
+    else
+      Canvas.TextOut(PX - Canvas.TextWidth(APin.Name) - PinRadiusScaled - 6,
+        PY - Canvas.TextHeight(APin.Name) div 2, APin.Name);
+  end;
+
 begin
-  if ANode = nil then Exit;
-  if ANode.VisualKind in [nvComment] then Exit;
+  if ANode = nil then
+    Exit;
+  if ANode.VisualKind in [nvComment] then
+    Exit;
 
   PinRadiusScaled := Max(2, Round(FPinRadius * FZoom));
-
   Canvas.Font.Color := clBlack;
   Canvas.Font.Size := Max(6, Round(10 * FZoom));
 
   for i := 0 to ANode.InputCount - 1 do
-  begin
-    P := ANode.GetInput(i);
-    if (P = nil) or P.Hidden then Continue;
-
-    PX := Round(ANode.X * FZoom) + FOffsetX;
-    PY := Round((ANode.Y + P.LocalY) * FZoom) + FOffsetY;
-    Center := Point(PX, PY);
-
-    IsSelected := FController.PinSelection.Contains(P);
-    IsHovered := (FHoveredPin = P);
-
-    Handled := False;
-    if Assigned(FOnDrawPin) then
-      FOnDrawPin(Self, Canvas, P, Center, PinRadiusScaled,
-        IsSelected, IsHovered, ANode.Highlighted, Handled);
-
-    if not Handled then
-      DefaultDrawPin(P, Center, PinRadiusScaled, IsSelected, IsHovered,
-        ANode.Highlighted);
-
-    Canvas.Brush.Style := bsClear;
-    Canvas.TextOut(PX + PinRadiusScaled + 6,
-      PY - Canvas.TextHeight(P.Name) div 2, P.Name);
-  end;
+    DrawSinglePin(ANode.GetInput(i), True);
 
   for i := 0 to ANode.OutputCount - 1 do
-  begin
-    P := ANode.GetOutput(i);
-    if (P = nil) or P.Hidden then Continue;
-
-    PX := Round((ANode.X + ANode.Width) * FZoom) + FOffsetX;
-    PY := Round((ANode.Y + P.LocalY) * FZoom) + FOffsetY;
-    Center := Point(PX, PY);
-
-    IsSelected := FController.PinSelection.Contains(P);
-    IsHovered := (FHoveredPin = P);
-
-    Handled := False;
-    if Assigned(FOnDrawPin) then
-      FOnDrawPin(Self, Canvas, P, Center, PinRadiusScaled,
-        IsSelected, IsHovered, ANode.Highlighted, Handled);
-
-    if not Handled then
-      DefaultDrawPin(P, Center, PinRadiusScaled, IsSelected, IsHovered,
-        ANode.Highlighted);
-
-    Canvas.Brush.Style := bsclear;
-    Canvas.TextOut(PX - Canvas.TextWidth(P.Name) - PinRadiusScaled - 6,
-      PY - Canvas.TextHeight(P.Name) div 2, P.Name);
-  end;
+    DrawSinglePin(ANode.GetOutput(i), False);
 
   Canvas.Brush.Style := bsSolid;
 end;
@@ -2502,6 +2525,7 @@ begin
   FHoveredNode := nil;
   FHoveredPin := nil;
   FHoveredLink := nil;
+  FHoveredPinCompatible := False;
 end;
 
 procedure TLazNodeEditor.UpdateHoverStates(SX, SY: integer);
@@ -2527,6 +2551,7 @@ begin
   FHoveredNode := nil;
   FHoveredPin := nil;
   FHoveredLink := nil;
+  FHoveredPinCompatible := False;
 
   if GetPinUnderMouse(SX, SY, N, P) then
   begin
@@ -2534,9 +2559,13 @@ begin
     FHoveredPin := P;
 
     if FTempFromPin <> nil then
-      N.Highlighted := FGraph.CanConnect(FTempFromPin, P)
+    begin
+      FHoveredPinCompatible := FGraph.CanConnect(FTempFromPin, P);
+    end
     else
+    begin
       N.Hovered := True;
+    end;
   end
   else if GetLinkUnderMouse(SX, SY, L) then
   begin
@@ -3003,6 +3032,7 @@ begin
     if (Abs(X - FTempStartMousePos.X) > 4) or (Abs(Y - FTempStartMousePos.Y) > 4) then
       FDraggingLink := True;
 
+    UpdateHoverStates(X, Y);
     RequestRepaint;
   end
   else if FBoxSelecting then
@@ -3373,6 +3403,7 @@ begin
     FBoxSelecting := False;
 
   ClearSnapGuides;
+  ClearHoverStates;
   MouseCapture := False;
   Cursor := crdefault;
   Invalidate;
