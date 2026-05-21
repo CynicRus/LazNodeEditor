@@ -120,6 +120,16 @@ type
     function TopologicalSort: specialize TList<integer>;
   end;
 
+  { TObjectDAG }
+
+  generic TObjectDAG<T: class> = class(specialize TDAG<T>)
+  private
+    FOwnsObjects: boolean;
+  public
+    constructor Create(AOwnsObjects: boolean = False);
+    destructor Destroy; override;
+  end;
+
 implementation
 
 { TDAG.TEdgeList }
@@ -166,6 +176,26 @@ begin
     Exit(False);
   Delete(P);
   Result := True;
+end;
+
+{ TObjectDAG }
+
+constructor TObjectDAG.Create(AOwnsObjects: Boolean = False);
+begin
+  inherited Create;
+  FOwnsObjects := AOwnsObjects;
+end;
+
+destructor TObjectDAG.Destroy;
+var
+  I: Integer;
+begin
+  if FOwnsObjects then
+  begin
+    for I := 0 to Count - 1 do
+      Items[I].Free;
+  end;
+  inherited Destroy;
 end;
 
 { TDAG }

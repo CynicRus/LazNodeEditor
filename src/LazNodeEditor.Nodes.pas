@@ -400,7 +400,10 @@ end;
 
 function TCustomNode.InputCount: integer;
 begin
-  Result := FInputs.Count;
+  if FInputs <> nil then
+  Result := FInputs.Count
+  else
+  Result := 0;
 end;
 
 function TCustomNode.OutputCount: integer;
@@ -633,16 +636,11 @@ end;
 procedure TCustomNode.Paint(Canvas: TCanvas; Zoom: double; OffsetX, OffsetY: integer);
 var
   R, HeaderR, BodyR: TRect;
-  i: integer;
-  p: TNodePin;
-  PX, PY: integer;
   HeaderH: integer;
-  PinRadius: integer;
 begin
   R := GetScreenBounds(Zoom, OffsetX, OffsetY);
 
   HeaderH := Max(20, Round(28 * Zoom));
-  PinRadius := Max(4, Round(8 * Zoom));
 
   if Collapsed and (VisualKind = nvNormal) then
   begin
@@ -792,53 +790,7 @@ begin
   Canvas.Font.Size := Max(6, Round(10 * Zoom));
   Canvas.TextOut(R.Left + 8, R.Top + Max(4, Round(6 * Zoom)), Title);
 
-  Canvas.Pen.Color := clBlack;
-  Canvas.Pen.Width := 1;
-
-  for i := 0 to InputCount - 1 do
-  begin
-    p := GetInput(i);
-    if Collapsed and (p.LocalY > HeaderH / Zoom) then
-      Continue;
-    PX := R.Left;
-    PY := R.Top + Round(p.LocalY * Zoom);
-
-    if p.Kind = pkExec then
-      Canvas.Brush.Color := clWhite
-    else if p.PinType <> nil then
-      Canvas.Brush.Color := p.PinType.Color
-    else
-      Canvas.Brush.Color := clLime;
-
-    Canvas.Brush.Style := bsSolid;
-    Canvas.Ellipse(PX - PinRadius, PY - PinRadius, PX + PinRadius, PY + PinRadius);
-
-    Canvas.Brush.Style := bsClear;
-    Canvas.TextOut(PX + PinRadius + 6, PY - Canvas.TextHeight(p.Name) div 2, p.Name);
-  end;
-
-  for i := 0 to OutputCount - 1 do
-  begin
-    p := GetOutput(i);
-    if Collapsed and (p.LocalY > HeaderH / Zoom) then
-      Continue;
-    PX := R.Right;
-    PY := R.Top + Round(p.LocalY * Zoom);
-
-    if p.Kind = pkExec then
-      Canvas.Brush.Color := clWhite
-    else if p.PinType <> nil then
-      Canvas.Brush.Color := p.PinType.Color
-    else
-      Canvas.Brush.Color := clLime;
-
-    Canvas.Brush.Style := bsSolid;
-    Canvas.Ellipse(PX - PinRadius, PY - PinRadius, PX + PinRadius, PY + PinRadius);
-
-    Canvas.Brush.Style := bsClear;
-    Canvas.TextOut(PX - Canvas.TextWidth(p.Name) - PinRadius - 6,
-      PY - Canvas.TextHeight(p.Name) div 2, p.Name);
-  end;
+  // Pin rendering removed from here. Handled by Editor.
 
   Canvas.Brush.Style := bsSolid;
   Canvas.Pen.Width := 1;

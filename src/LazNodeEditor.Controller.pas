@@ -30,7 +30,9 @@ uses
   fpjson, jsonparser,
   LazNodeEditor.Types,
   LazNodeEditor.Nodes,
-  LazNodeEditor.Graph;
+  LazNodeEditor.Graph,
+  LazNodeEditor.Selection,
+  LazNodeEditor.ClipboardService;
 
 type
 
@@ -40,6 +42,7 @@ type
   private
     FGraph: TNodeGraph;
     FSelection: TNodeSelectionModel;
+    FPinSelection: TPinSelectionModel;
     FClipboard: TNodeClipboardService;
   public
     constructor Create(AGraph: TNodeGraph);
@@ -83,6 +86,7 @@ type
 
     property Graph: TNodeGraph read FGraph;
     property Selection: TNodeSelectionModel read FSelection;
+    property PinSelection: TPinSelectionModel read FPinSelection;
     property ClipboardService: TNodeClipboardService read FClipboard;
   end;
 
@@ -110,6 +114,7 @@ begin
   inherited Create;
   FGraph := AGraph;
   FSelection := TNodeSelectionModel.Create;
+  FPinSelection := TPinSelectionModel.Create;
   FClipboard := TNodeClipboardService.Create;
 end;
 
@@ -117,6 +122,7 @@ destructor TNodeEditorController.Destroy;
 begin
   FClipboard.Free;
   FSelection.Free;
+  FPinSelection.Free;
   inherited Destroy;
 end;
 
