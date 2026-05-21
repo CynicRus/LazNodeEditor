@@ -6,7 +6,7 @@ interface
 
 uses
   Classes, SysUtils, Forms, Controls, Graphics, Dialogs, StdCtrls, ExtCtrls,
-  ComCtrls, Menus, LCLIntf, LCLType, types,
+  ComCtrls, Menus, LCLIntf, LCLType, Types,
   LazNodeEditor.Types,
   LazNodeEditor.Nodes,
   LazNodeEditor.Graph,
@@ -91,6 +91,7 @@ type
 
     { Toolbar — Settings }
     FChkSnap:         TCheckBox;
+    FChkSnapNodes:    TCheckBox;
     FEdtGridSize:     TEdit;
     FLblGridSize:     TLabel;
 
@@ -148,6 +149,7 @@ type
     procedure ClickAddComment(Sender: TObject);
     procedure ClickAddDefault(Sender: TObject);
     procedure ChkSnapChange(Sender: TObject);
+    procedure ChkSnapNodesChange(Sender: TObject);
     procedure EdtGridSizeChange(Sender: TObject);
 
     { Event handlers — editor }
@@ -183,7 +185,7 @@ begin
   NodeType     := 'math_expr';
   HeaderColor  := $004080FF;
   BodyColor    := $00F0F8FF;
-  // Добавляем значения разных типов — чтобы показать все kinds в инспекторе
+
   V := AddValue('expression', nvkString);
   V.StringValue := 'A + B * C';
 
@@ -203,15 +205,14 @@ end;
 procedure TMathExprNode.SetupPins;
 begin
   ClearPins;
-  // Exec-пины
   AddInput ('▶ Exec In',  'exec', pkExec, 35);
   AddOutput('▶ Exec Out', 'exec', pkExec, 35);
-  // Data-пины
+
   AddInput ('A',      'float',   pkData, 75);
   AddInput ('B',      'float',   pkData, 105);
   AddInput ('C',      'float',   pkData, 135);
   AddOutput('Result', 'float',   pkData, 90);
-  // IsRequired demo
+
   GetInput(1).IsRequired    := True;
   GetInput(2).IsRequired    := True;
   GetInput(1).DefaultValue  := '0.0';
@@ -326,23 +327,22 @@ begin
   BuildInspectorPanel;
   BuildEditorArea;
 
-  { StatusBar }
   FStatusBar := TStatusBar.Create(Self);
   FStatusBar.Parent := Self;
   FStatusBar.Align  := alBottom;
   FStatusBar.SimplePanel := False;
-  FStatusBar.Panels.Add.Width := 200;  // selection
-  FStatusBar.Panels.Add.Width := 180;  // nodes/links count
-  FStatusBar.Panels.Add.Width := 150;  // zoom
-  FStatusBar.Panels.Add.Width := 200;  // snap
-  FStatusBar.Panels.Add.Width := 0;    // hints (stretch)
+  FStatusBar.Panels.Add.Width := 200;
+  FStatusBar.Panels.Add.Width := 180;
+  FStatusBar.Panels.Add.Width := 150;
+  FStatusBar.Panels.Add.Width := 260;
+  FStatusBar.Panels.Add.Width := 0;
   UpdateStatus;
 end;
 
 procedure TForm1.BuildToolbar;
 const
   BH = 26;
-  BY =  7;
+  BY = 7;
 var
   X: Integer;
 
@@ -356,7 +356,8 @@ var
   end;
 
   procedure Sep;
-  var L: TLabel;
+  var
+    L: TLabel;
   begin
     L := TLabel.Create(Self);
     L.Parent  := FTopPanel;
@@ -410,10 +411,19 @@ begin
   { Snap }
   FChkSnap := TCheckBox.Create(Self);
   FChkSnap.Parent  := FTopPanel;
-  FChkSnap.SetBounds(X, BY + 2, 90, BH);
-  FChkSnap.Caption := 'Snap Grid';
+  FChkSnap.SetBounds(X, BY + 2, 78, BH);
+  FChkSnap.Caption := 'Snap to grid';
+  FChkSnap.Checked := False;
   FChkSnap.OnChange := @ChkSnapChange;
-  Inc(X, 94);
+  Inc(X, 82);
+
+  FChkSnapNodes := TCheckBox.Create(Self);
+  FChkSnapNodes.Parent  := FTopPanel;
+  FChkSnapNodes.SetBounds(X, BY + 2, 92, BH);
+  FChkSnapNodes.Caption := 'Snap to node';
+  FChkSnapNodes.Checked := False;
+  FChkSnapNodes.OnChange := @ChkSnapNodesChange;
+  Inc(X, 96);
 
   FLblGridSize := TLabel.Create(Self);
   FLblGridSize.Parent  := FTopPanel;
@@ -479,8 +489,9 @@ begin
   FEditor.Parent := Self;
   FEditor.Align  := alClient;
   FEditor.Color  := $00D8D8D8;
-  FEditor.SnapToGrid := False;
-  FEditor.GridSize   := 40;
+  FEditor.SnapToGrid  := False;
+  FEditor.SnapToNodes := False;
+  FEditor.GridSize    := 40;
 
   FInspector.Editor := FEditor;
 
@@ -532,7 +543,6 @@ var
   NDefault: TCustomNode;
   V: TNodeValue;
 begin
-  // ── Float sources ──────────────────────────────────────────────
   NFloat1 := FEditor.Graph.Registry.CreateNode('float', 40, 120);
   NFloat1.Title := 'Value A';
   TFloatNode(NFloat1).SetupPins;
@@ -554,41 +564,33 @@ begin
   if V <> nil then V.FloatValue := 10.0;
   FEditor.AddNode(NFloat3);
 
-  // ── Add node ───────────────────────────────────────────────────
   NAdd := FEditor.Graph.Registry.CreateNode('add', 280, 160);
   NAdd.Title := 'A + B';
   FEditor.AddNode(NAdd);
 
-  // ── Multiply node (custom) ─────────────────────────────────────
   NMul := FEditor.Graph.Registry.CreateNode('multiply_node', 280, 310);
   NMul.Title := '(A+B) × C';
   FEditor.AddNode(NMul);
 
-  // ── Math Expression (exec + values) ───────────────────────────
   NMath := FEditor.Graph.Registry.CreateNode('math_expr', 520, 180);
   NMath.Title := 'Math Expr';
   FEditor.AddNode(NMath);
 
-  // ── String node ────────────────────────────────────────────────
   NStr := FEditor.Graph.Registry.CreateNode('string_node', 520, 420);
   NStr.Title := 'Label';
   FEditor.AddNode(NStr);
 
-  // ── Branch node (exec flow) ───────────────────────────────────
   NBranch := FEditor.Graph.Registry.CreateNode('branch_node', 760, 160);
   NBranch.Title := 'If Enabled?';
   FEditor.AddNode(NBranch);
 
-  // ── Reroute ────────────────────────────────────────────────────
   NReroute := FEditor.Graph.Registry.CreateNode('reroute', 430, 370);
   FEditor.AddNode(NReroute);
 
-  // ── Default node ───────────────────────────────────────────────
   NDefault := FEditor.Graph.Registry.CreateNode('default', 760, 360);
   NDefault.Title := 'Default Node';
   FEditor.AddNode(NDefault);
 
-  // ── Comment / Frame 1 (Math block) ────────────────────────────
   NComment1 := FEditor.Graph.Registry.CreateNode('comment', 20, 80);
   NComment1.Title       := 'Math Block';
   NComment1.Width       := 460;
@@ -598,7 +600,6 @@ begin
   NComment1.BodyColor   := $00EEFFEE;
   FEditor.AddNode(NComment1);
 
-  // ── Comment / Frame 2 (Flow block) ────────────────────────────
   NComment2 := FEditor.Graph.Registry.CreateNode('comment', 500, 120);
   NComment2.Title       := 'Flow Block';
   NComment2.Width       := 320;
@@ -608,18 +609,15 @@ begin
   NComment2.BodyColor   := $00FFF8E8;
   FEditor.AddNode(NComment2);
 
-  // ── Links: Float → Add ─────────────────────────────────────────
   if FEditor.Graph.CanConnect(NFloat1.GetOutput(0), NAdd.GetInput(0)) then
     FEditor.Graph.AddLink(TNodeLink.Create(NFloat1.GetOutput(0), NAdd.GetInput(0)));
 
   if FEditor.Graph.CanConnect(NFloat2.GetOutput(0), NAdd.GetInput(1)) then
     FEditor.Graph.AddLink(TNodeLink.Create(NFloat2.GetOutput(0), NAdd.GetInput(1)));
 
-  // ── Links: Add+Float3 → Mul ────────────────────────────────────
   if FEditor.Graph.CanConnect(NAdd.GetOutput(0), NMul.GetInput(0)) then
     FEditor.Graph.AddLink(TNodeLink.Create(NAdd.GetOutput(0), NMul.GetInput(0)));
 
-  // Float3 → Reroute → Mul.B
   if (NReroute.InputCount > 0) and (NReroute.OutputCount > 0) then
   begin
     if FEditor.Graph.CanConnect(NFloat3.GetOutput(0), NReroute.GetInput(0)) then
@@ -629,8 +627,7 @@ begin
       FEditor.Graph.AddLink(TNodeLink.Create(NReroute.GetOutput(0), NMul.GetInput(1)));
   end;
 
-  // ── Links: Mul → Math A, Float1 → Math B, Float2 → Math C ─────
-  if NMath.InputCount >= 4 then // exec + A + B + C
+  if NMath.InputCount >= 4 then
   begin
     if FEditor.Graph.CanConnect(NMul.GetOutput(0), NMath.GetInput(1)) then
       FEditor.Graph.AddLink(TNodeLink.Create(NMul.GetOutput(0), NMath.GetInput(1)));
@@ -640,17 +637,14 @@ begin
       FEditor.Graph.AddLink(TNodeLink.Create(NFloat2.GetOutput(0), NMath.GetInput(3)));
   end;
 
-  // ── Links: Math Exec Out → Branch Exec In ──────────────────────
   if (NMath.OutputCount >= 1) and (NBranch.InputCount >= 1) then
     if FEditor.Graph.CanConnect(NMath.GetOutput(0), NBranch.GetInput(0)) then
       FEditor.Graph.AddLink(TNodeLink.Create(NMath.GetOutput(0), NBranch.GetInput(0)));
 
-  // ── Links: Branch True → Default In ───────────────────────────
   if (NBranch.OutputCount >= 1) and (NDefault.InputCount >= 1) then
     if FEditor.Graph.CanConnect(NBranch.GetOutput(0), NDefault.GetInput(0)) then
       FEditor.Graph.AddLink(TNodeLink.Create(NBranch.GetOutput(0), NDefault.GetInput(0)));
 
-  // ── Select Math node — демонстрируем все его values в инспекторе
   FEditor.SelectNode(NMath, False);
   FInspector.RefreshFromSelection;
 
@@ -800,15 +794,12 @@ begin
   FStatusBar.Panels[4].Text := 'Sent to back';
 end;
 
-// ── Add node helpers ──────────────────────────────────────────────────────────
-
 function TForm1.CenterWorldPos: TPointF;
 begin
-  Result.X := (FEditor.ClientWidth  div 2 - 90);
+  Result.X := (FEditor.ClientWidth div 2 - 90);
   Result.Y := (FEditor.ClientHeight div 2 - 60);
-  // грубое приближение без доступа к ScreenToWorld — достаточно для демки
-  Result.X := (Result.X - 0) / FEditor.Zoom;
-  Result.Y := (Result.Y - 0) / FEditor.Zoom;
+  Result.X := Result.X / FEditor.Zoom;
+  Result.Y := Result.Y / FEditor.Zoom;
 end;
 
 procedure TForm1.AddNodeAtCenter(const ANodeType: string);
@@ -827,37 +818,63 @@ begin
 end;
 
 procedure TForm1.ClickAddFloat(Sender: TObject);
-begin AddNodeAtCenter('float'); end;
+begin
+  AddNodeAtCenter('float');
+end;
 
 procedure TForm1.ClickAddAdd(Sender: TObject);
-begin AddNodeAtCenter('add'); end;
+begin
+  AddNodeAtCenter('add');
+end;
 
 procedure TForm1.ClickAddMul(Sender: TObject);
-begin AddNodeAtCenter('multiply_node'); end;
+begin
+  AddNodeAtCenter('multiply_node');
+end;
 
 procedure TForm1.ClickAddMath(Sender: TObject);
-begin AddNodeAtCenter('math_expr'); end;
+begin
+  AddNodeAtCenter('math_expr');
+end;
 
 procedure TForm1.ClickAddString(Sender: TObject);
-begin AddNodeAtCenter('string_node'); end;
+begin
+  AddNodeAtCenter('string_node');
+end;
 
 procedure TForm1.ClickAddBranch(Sender: TObject);
-begin AddNodeAtCenter('branch_node'); end;
+begin
+  AddNodeAtCenter('branch_node');
+end;
 
 procedure TForm1.ClickAddReroute(Sender: TObject);
-begin AddNodeAtCenter('reroute'); end;
+begin
+  AddNodeAtCenter('reroute');
+end;
 
 procedure TForm1.ClickAddComment(Sender: TObject);
-begin AddNodeAtCenter('comment'); end;
+begin
+  AddNodeAtCenter('comment');
+end;
 
 procedure TForm1.ClickAddDefault(Sender: TObject);
-begin AddNodeAtCenter('default'); end;
+begin
+  AddNodeAtCenter('default');
+end;
 
-// ── Settings ──────────────────────────────────────────────────────────────────
+// =============================================================================
+// Settings
+// =============================================================================
 
 procedure TForm1.ChkSnapChange(Sender: TObject);
 begin
   FEditor.SnapToGrid := FChkSnap.Checked;
+  UpdateStatus;
+end;
+
+procedure TForm1.ChkSnapNodesChange(Sender: TObject);
+begin
+  FEditor.SnapToNodes := FChkSnapNodes.Checked;
   UpdateStatus;
 end;
 
@@ -917,8 +934,9 @@ begin
     '  Links: ' + IntToStr(FEditor.Graph.Links.Count);
   FStatusBar.Panels[2].Text := Format('Zoom: %.0f%%', [FEditor.Zoom * 100]);
   FStatusBar.Panels[3].Text :=
-    'Snap: ' + BoolToStr(FEditor.SnapToGrid, 'ON', 'OFF') +
-    '  Grid: ' + IntToStr(FEditor.GridSize);
+    'Grid: ' + BoolToStr(FEditor.SnapToGrid, 'ON', 'OFF') +
+    '  Node: ' + BoolToStr(FEditor.SnapToNodes, 'ON', 'OFF') +
+    '  Size: ' + IntToStr(FEditor.GridSize);
 end;
 
 end.
