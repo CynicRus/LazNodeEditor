@@ -297,6 +297,7 @@ type
 function NodePaintCompare(Item1, Item2: Pointer): integer;
 procedure BuildSortedNodeList(AGraph: TNodeGraph; AList: TList);
 procedure LoadGraphFromJSONText(AGraph: TNodeGraph; const S: string);
+procedure ApplyNodePropertiesFromJSON(ANode: TCustomNode; AObj: TJSONObject);
 
 implementation
 
@@ -350,6 +351,60 @@ begin
       AGraph.LoadGraphFromJSON(TJSONObject(Data));
   finally
     Data.Free;
+  end;
+end;
+
+procedure ApplyNodePropertiesFromJSON(ANode: TCustomNode; AObj: TJSONObject);
+var
+  i: integer;
+  ValuesArr: TJSONArray;
+  VObj: TJSONObject;
+  V: TNodeValue;
+  S: string;
+begin
+  if (ANode = nil) or (AObj = nil) then
+    Exit;
+
+  ANode.Title := AObj.Get('title', ANode.Title);
+  ANode.X := AObj.Get('x', ANode.X);
+  ANode.Y := AObj.Get('y', ANode.Y);
+  ANode.Width := AObj.Get('width', ANode.Width);
+  ANode.Height := AObj.Get('height', ANode.Height);
+  ANode.HeaderColor := TColor(AObj.Get('headerColor', integer(ANode.HeaderColor)));
+  ANode.BodyColor := TColor(AObj.Get('bodyColor', integer(ANode.BodyColor)));
+  ANode.Collapsed := AObj.Get('collapsed', ANode.Collapsed);
+  ANode.CommentText := AObj.Get('comment', ANode.CommentText);
+
+  ValuesArr := AObj.Arrays['values'];
+  if ValuesArr <> nil then
+  begin
+    for i := 0 to Min(ANode.ValueCount, ValuesArr.Count) - 1 do
+    begin
+      V := ANode.GetValue(i);
+      VObj := ValuesArr.Objects[i];
+      if (V = nil) or (VObj = nil) then
+        Continue;
+
+      case V.Kind of
+        nvkFloat:
+          V.FloatValue := VObj.Get('value', V.FloatValue);
+
+        nvkInteger:
+          V.IntegerValue := VObj.Get('value', V.IntegerValue);
+
+        nvkString:
+          V.StringValue := VObj.Get('value', V.StringValue);
+
+        nvkBoolean:
+          V.BooleanValue := VObj.Get('value', V.BooleanValue);
+
+        nvkJSON:
+          begin
+            S := VObj.Get('value', V.JSONValue);
+            V.JSONValue := S;
+          end;
+      end;
+    end;
   end;
 end;
 
@@ -1940,7 +1995,8 @@ begin
 
   Data := GetJSON(FNewJSON);
   try
-    N.LoadFromJSON(TJSONObject(Data));
+    if Data.JSONType = jtObject then
+      ApplyNodePropertiesFromJSON(N, TJSONObject(Data));
   finally
     Data.Free;
   end;
@@ -1962,7 +2018,8 @@ begin
 
   Data := GetJSON(FOldJSON);
   try
-    N.LoadFromJSON(TJSONObject(Data));
+    if Data.JSONType = jtObject then
+      ApplyNodePropertiesFromJSON(N, TJSONObject(Data));
   finally
     Data.Free;
   end;
