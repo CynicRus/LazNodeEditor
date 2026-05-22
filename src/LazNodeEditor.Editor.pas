@@ -1385,20 +1385,19 @@ var
     IsSelected: boolean;
     IsHovered: boolean;
     Handled: boolean;
+    R: TRect;
   begin
     if (APin = nil) or APin.Hidden then
       Exit;
 
+    R := ANode.GetScreenBounds(FZoom, FOffsetX, FOffsetY);
+
     if AIsInput then
-    begin
-      PX := Round(ANode.X * FZoom + FOffsetX);
-      PY := Round((ANode.Y + APin.LocalY) * FZoom + FOffsetY);
-    end
+      PX := R.Left
     else
-    begin
-      PX := Round((ANode.X + ANode.Width) * FZoom + FOffsetX);
-      PY := Round((ANode.Y + APin.LocalY) * FZoom + FOffsetY);
-    end;
+      PX := R.Right;
+
+    PY := R.Top + Round(APin.LocalY * FZoom);
 
     Center := Point(PX, PY);
 
@@ -1552,7 +1551,7 @@ begin
   Dist := Hypot(DX, DY);
 
   D := Dist * 0.35;
-  D := EnsureRange(D, 30 / FZoom, 150 / FZoom);
+  D := EnsureRange(D, 30, 150); // Убрана зависимость от FZoom
 
   P1 := P0;
   P1.X := P1.X + D;
@@ -2131,7 +2130,7 @@ begin
   DX := W3.X - W0.X;
   DY := W3.Y - W0.Y;
   Dist := Hypot(DX, DY);
-  D := EnsureRange(Dist * 0.35, 30 / FZoom, 150 / FZoom);
+  D := EnsureRange(Dist * 0.35, 30, 150); // Убрана зависимость от FZoom
 
   W1 := W0;
   W2 := W3;
@@ -3446,8 +3445,8 @@ begin
 
   if Abs(OldZoom - FZoom) > 0.0001 then
   begin
-    FOffsetX := MousePos.X - Round((MousePos.X - FOffsetX) * (FZoom / OldZoom));
-    FOffsetY := MousePos.Y - Round((MousePos.Y - FOffsetY) * (FZoom / OldZoom));
+    FOffsetX := MousePos.X - ((MousePos.X - FOffsetX) * (FZoom / OldZoom));
+    FOffsetY := MousePos.Y - ((MousePos.Y - FOffsetY) * (FZoom / OldZoom));
   end;
 
   if Assigned(FOnZoomChanged) then
