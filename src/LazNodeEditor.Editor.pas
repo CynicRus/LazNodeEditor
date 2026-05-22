@@ -191,6 +191,7 @@ type
       Radius: integer; ASelected, AHovered, AHighlighted: boolean);
     procedure DefaultDrawLink(ALink: TNodeLink; const P0, P1, P2, P3: TPoint;
       ASelected, AHovered: boolean);
+    procedure DrawNodeWithPins(ANode: TCustomNode);
 
     // Controller & Sync
     procedure NotifySelectionChanged;
@@ -1456,6 +1457,17 @@ begin
   Canvas.Pen.Width := 1;
 end;
 
+procedure TLazNodeEditor.DrawNodeWithPins(ANode: TCustomNode);
+begin
+  if ANode = nil then
+    Exit;
+
+  DrawSingleNode(ANode);
+
+  if ANode.VisualKind <> nvComment then
+    DrawNodePins(ANode);
+end;
+
 // Geometry & Rendering Layers
 
 function TLazNodeEditor.WorldToScreen(WX, WY: single): TPoint;
@@ -1747,11 +1759,12 @@ end;
 
 function TLazNodeEditor.GetNodeUnderMouse(SX, SY: integer): TCustomNode;
 var
-  i: integer;
+  i, Prio, BestPrio: integer;
   W: TPointF;
   N: TCustomNode;
 begin
   Result := nil;
+  BestPrio := -1;
   W := ScreenToWorld(SX, SY);
 
   EnsureSortedNodes;
@@ -1759,15 +1772,21 @@ begin
   for i := FPaintNodesSorted.Count - 1 downto 0 do
   begin
     N := TCustomNode(FPaintNodesSorted[i]);
-    if (N.VisualKind <> nvComment) and N.HitTest(W.X, W.Y) then
-      Exit(N);
-  end;
 
-  for i := FPaintNodesSorted.Count - 1 downto 0 do
-  begin
-    N := TCustomNode(FPaintNodesSorted[i]);
-    if (N.VisualKind = nvComment) and N.HitTest(W.X, W.Y) then
-      Exit(N);
+    if N.HitTest(W.X, W.Y) then
+    begin
+
+      Prio := Ord(N.VisualKind <> nvComment) * 2 + Ord(N.Selected);
+
+      if Prio > BestPrio then
+      begin
+        BestPrio := Prio;
+        Result := N;
+
+        if BestPrio = 3 then
+          Exit;
+      end;
+    end;
   end;
 end;
 
@@ -1820,12 +1839,16 @@ var
   i, j: integer;
   N: TCustomNode;
   P: TNodePin;
-  W, PW: TPointF;
+  PW: TPointF;
+  W: TPointF;
   HitRadiusWorld: single;
+  BestPrio, Prio: integer;
+  FoundPin: boolean;
 begin
   Result := False;
   Node := nil;
   Pin := nil;
+  BestPrio := -1;
 
   W := ScreenToWorld(SX, SY);
   EnsureSortedNodes;
@@ -1833,39 +1856,58 @@ begin
   for i := FPaintNodesSorted.Count - 1 downto 0 do
   begin
     N := TCustomNode(FPaintNodesSorted[i]);
-    if N.VisualKind = nvComment then Continue;
+    if (N = nil) or (N.VisualKind = nvComment) then Continue;
+
+    Prio := Ord(N.Selected);
+
+    if Prio <= BestPrio then
+      Continue;
 
     if N.VisualKind = nvReroute then
       HitRadiusWorld := 9 / FZoom
     else
       HitRadiusWorld := 10 / FZoom;
 
+    FoundPin := False;
+
     for j := 0 to N.InputCount - 1 do
     begin
       P := N.GetInput(j);
-      if P.Hidden then Continue;
+      if (P = nil) or P.Hidden then Continue;
 
       PW := GetPinWorldPosition(P);
       if Hypot(W.X - PW.X, W.Y - PW.Y) <= HitRadiusWorld then
       begin
-        Node := N;
-        Pin := P;
-        Exit(True);
+        FoundPin := True;
+        Break;
       end;
     end;
 
-    for j := 0 to N.OutputCount - 1 do
+    if not FoundPin then
     begin
-      P := N.GetOutput(j);
-      if P.Hidden then Continue;
-
-      PW := GetPinWorldPosition(P);
-      if Hypot(W.X - PW.X, W.Y - PW.Y) <= HitRadiusWorld then
+      for j := 0 to N.OutputCount - 1 do
       begin
-        Node := N;
-        Pin := P;
-        Exit(True);
+        P := N.GetOutput(j);
+        if (P = nil) or P.Hidden then Continue;
+
+        PW := GetPinWorldPosition(P);
+        if Hypot(W.X - PW.X, W.Y - PW.Y) <= HitRadiusWorld then
+        begin
+          FoundPin := True;
+          Break;
+        end;
       end;
+    end;
+
+    if FoundPin then
+    begin
+      BestPrio := Prio;
+      Node := N;
+      Pin := P;
+      Result := True;
+
+      if BestPrio = 1 then
+        Exit;
     end;
   end;
 end;
@@ -2110,7 +2152,6 @@ procedure TLazNodeEditor.Paint;
 var
   i: integer;
   N: TCustomNode;
-  R: TRect;
   CX, CY, DX, DY: single;
   Txt: string;
   TX, TY: integer;
@@ -2156,6 +2197,7 @@ begin
     if (N.VisualKind = nvComment) and not N.Selected then
       DrawSingleNode(N);
   end;
+
   for i := 0 to FPaintNodesSorted.Count - 1 do
   begin
     N := TCustomNode(FPaintNodesSorted[i]);
@@ -2169,20 +2211,14 @@ begin
   begin
     N := TCustomNode(FPaintNodesSorted[i]);
     if (N.VisualKind <> nvComment) and not N.Selected then
-      DrawSingleNode(N);
-  end;
-  for i := 0 to FPaintNodesSorted.Count - 1 do
-  begin
-    N := TCustomNode(FPaintNodesSorted[i]);
-    if (N.VisualKind <> nvComment) and N.Selected then
-      DrawSingleNode(N);
+      DrawNodeWithPins(N);
   end;
 
   for i := 0 to FPaintNodesSorted.Count - 1 do
   begin
     N := TCustomNode(FPaintNodesSorted[i]);
-    if N.VisualKind <> nvComment then
-      DrawNodePins(N);
+    if (N.VisualKind <> nvComment) and N.Selected then
+      DrawNodeWithPins(N);
   end;
 
   PaintResizeHandles;
@@ -2970,7 +3006,7 @@ begin
     FOffsetY := FOffsetY + (Y - FPanStartY);
     FPanStartX := X;
     FPanStartY := Y;
-    RequestRepaint;
+    RequestRepaint(True);
   end
   else if FResizingNode and (FResizeNode <> nil) then
   begin
@@ -2984,7 +3020,7 @@ begin
       FResizeNode.Width := Max(12, FResizeNode.Width);
       FResizeNode.Height := FResizeNode.Width;
     end;
-    RequestRepaint;
+    RequestRepaint(True);
   end
   else if FDraggingNode and (FController.Selection.NodeCount > 0) then
   begin
@@ -3023,7 +3059,7 @@ begin
 
     end;
 
-    RequestRepaint;
+    RequestRepaint(True);
   end
   else if FTempFromPin <> nil then
   begin
@@ -3039,7 +3075,7 @@ begin
   begin
     FBoxCurrent := Point(X, Y);
     FBoxCurrentWorld := ScreenToWorld(X, Y);
-    RequestRepaint;
+    RequestRepaint(True);
   end;
 end;
 
