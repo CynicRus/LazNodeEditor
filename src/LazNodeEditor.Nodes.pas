@@ -94,7 +94,7 @@ type
 
     function GetPinAt(LocalX, LocalY: integer): TNodePin;
     function HitTest(WX, WY: single): boolean;
-    function GetScreenBounds(Zoom: double; OffsetX, OffsetY: integer): TRect;
+    function GetScreenBounds(Zoom: double; OffsetX, OffsetY: double): TRect;
 
     procedure ClearValues;
     function AddValue(const AName: string; AKind: TNodeValueKind): TNodeValue;
@@ -573,12 +573,13 @@ begin
   Result := (WX >= X) and (WY >= Y) and (WX <= X + Width) and (WY <= Y + Height);
 end;
 
-function TCustomNode.GetScreenBounds(Zoom: double; OffsetX, OffsetY: integer): TRect;
+function TCustomNode.GetScreenBounds(Zoom: double; OffsetX, OffsetY: double): TRect;
 begin
-  Result.Left := Round(X * Zoom) + OffsetX;
-  Result.Top := Round(Y * Zoom) + OffsetY;
-  Result.Right := Result.Left + Round(Width * Zoom);
-  Result.Bottom := Result.Top + Round(Height * Zoom);
+  Result.Left := Round(X * Zoom + OffsetX);
+  Result.Top := Round(Y * Zoom + OffsetY);
+
+  Result.Right := Round((X + Width) * Zoom + OffsetX);
+  Result.Bottom := Round((Y + Height) * Zoom + OffsetY);
 end;
 
 procedure TCustomNode.ClearValues;

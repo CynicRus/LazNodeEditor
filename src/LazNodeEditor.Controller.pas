@@ -63,13 +63,13 @@ type
     procedure PasteFromClipboard(AX, AY: single);
     procedure DuplicateSelection(AX, AY: single);
 
-    function SaveToJSONText(AZoom: double; AOffsetX, AOffsetY: integer): string;
+    function SaveToJSONText(AZoom: double; AOffsetX, AOffsetY: double): string;
     procedure LoadFromJSONText(const S: string; out AZoom: double;
-      out AOffsetX, AOffsetY: integer);
+      out AOffsetX, AOffsetY: double);
     procedure SaveToFile(const AFileName: string; AZoom: double;
-      AOffsetX, AOffsetY: integer);
+      AOffsetX, AOffsetY: double);
     procedure LoadFromFile(const AFileName: string; out AZoom: double;
-      out AOffsetX, AOffsetY: integer);
+      out AOffsetX, AOffsetY: double);
 
     function ValidateGraphToStrings(AStrings: TStrings): boolean;
 
@@ -207,7 +207,7 @@ begin
 end;
 
 function TNodeEditorController.SaveToJSONText(AZoom: double; AOffsetX,
-  AOffsetY: integer): string;
+  AOffsetY: double): string;
 var
   Root: TJSONObject;
   GraphObj: TJSONObject;
@@ -228,8 +228,8 @@ begin
   end;
 end;
 
-procedure TNodeEditorController.LoadFromJSONText(const S: string; out AZoom: double;
-  out AOffsetX, AOffsetY: integer);
+procedure TNodeEditorController.LoadFromJSONText(const S: string; out
+  AZoom: double; out AOffsetX, AOffsetY: double);
 var
   Data: TJSONData;
   Root: TJSONObject;
@@ -237,8 +237,8 @@ var
   BeforeJSON, AfterJSON: string;
 begin
   AZoom := 1.0;
-  AOffsetX := 0;
-  AOffsetY := 0;
+  AOffsetX := 0.0;
+  AOffsetY := 0.0;
 
   if (FGraph = nil) or (Trim(S) = '') then
     Exit;
@@ -250,8 +250,8 @@ begin
     Root := TJSONObject(Data);
 
     AZoom := Root.Get('zoom', 1.0);
-    AOffsetX := Root.Get('offsetX', 0);
-    AOffsetY := Root.Get('offsetY', 0);
+    AOffsetX := Root.Get('offsetX', 0.0);
+    AOffsetY := Root.Get('offsetY', 0.0);
 
     GraphObj := Root.Objects['graph'];
     if GraphObj <> nil then
@@ -268,7 +268,7 @@ begin
 end;
 
 procedure TNodeEditorController.SaveToFile(const AFileName: string; AZoom: double;
-  AOffsetX, AOffsetY: integer);
+  AOffsetX, AOffsetY: double);
 var
   SL: TStringList;
 begin
@@ -282,7 +282,7 @@ begin
 end;
 
 procedure TNodeEditorController.LoadFromFile(const AFileName: string; out AZoom: double;
-  out AOffsetX, AOffsetY: integer);
+  out AOffsetX, AOffsetY: double);
 var
   SL: TStringList;
 begin

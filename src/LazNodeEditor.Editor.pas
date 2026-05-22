@@ -41,7 +41,7 @@ type
   { Custom Draw Events }
   TNodeEditorDrawNodeEvent = procedure(Sender: TObject; Canvas: TCanvas;
     ANode: TCustomNode; const ARect: TRect; Zoom: double;
-    OffsetX, OffsetY: integer; var AHandled: boolean) of object;
+    OffsetX, OffsetY: double; var AHandled: boolean) of object;
 
   TNodeEditorDrawPinEvent = procedure(Sender: TObject; Canvas: TCanvas;
     APin: TNodePin; const ACenter: TPoint; ARadius: integer;
@@ -70,7 +70,7 @@ type
 
     // Viewport
     FZoom: double;
-    FOffsetX, FOffsetY: integer;
+    FOffsetX, FOffsetY: double;
 
     // Interaction State
     FDraggingNode: boolean;
@@ -545,9 +545,10 @@ begin
   FPopupMenu := TPopupMenu.Create(Self);
   FPopupMenu.OnClose := @OnPopupClose;
 
-  Canvas.Font.Quality      := fqAntialiased; // текст станет заметно лучше
-  Canvas.Pen.JoinStyle     := pjsRound;       // важный параметр!
-  Canvas.Pen.EndCap        := pecRound;      // важный параметр!
+  Canvas.Font.Quality := fqAntialiased;
+  // текст станет заметно лучше
+  Canvas.Pen.JoinStyle := pjsRound;       // важный параметр!
+  Canvas.Pen.EndCap := pecRound;      // важный параметр!
 
   BuildContextMenu;
 end;
@@ -691,7 +692,7 @@ end;
 procedure TLazNodeEditor.LoadFromJSONText(const S: string);
 var
   Z: double;
-  OX, OY: integer;
+  OX, OY: double;
 begin
   if Trim(S) = '' then
     Exit;
@@ -717,7 +718,7 @@ end;
 procedure TLazNodeEditor.LoadFromFile(const AFileName: string);
 var
   Z: double;
-  OX, OY: integer;
+  OX, OY: double;
 begin
   if FController <> nil then
   begin
@@ -745,8 +746,8 @@ end;
 
 procedure TLazNodeEditor.SetZoomStep(AValue: double);
 begin
-  if FZoomStep=AValue then Exit;
-  FZoomStep:=AValue;
+  if FZoomStep = AValue then Exit;
+  FZoomStep := AValue;
 end;
 
 procedure TLazNodeEditor.TogglePinSelection(APin: TNodePin);
@@ -1379,13 +1380,13 @@ var
 
     if AIsInput then
     begin
-      PX := Round(ANode.X * FZoom) + FOffsetX;
-      PY := Round((ANode.Y + APin.LocalY) * FZoom) + FOffsetY;
+      PX := Round(ANode.X * FZoom + FOffsetX);
+      PY := Round((ANode.Y + APin.LocalY) * FZoom + FOffsetY);
     end
     else
     begin
-      PX := Round((ANode.X + ANode.Width) * FZoom) + FOffsetX;
-      PY := Round((ANode.Y + APin.LocalY) * FZoom) + FOffsetY;
+      PX := Round((ANode.X + ANode.Width) * FZoom + FOffsetX);
+      PY := Round((ANode.Y + APin.LocalY) * FZoom + FOffsetY);
     end;
 
     Center := Point(PX, PY);
@@ -1416,7 +1417,7 @@ var
         Center.Y - PinRadiusScaled - 5,
         Center.X + PinRadiusScaled + 5,
         Center.Y + PinRadiusScaled + 5
-      );
+        );
       Canvas.Pen.Width := 1;
     end;
 
@@ -1487,8 +1488,8 @@ end;
 
 function TLazNodeEditor.WorldToScreen(WX, WY: single): TPoint;
 begin
-  Result.X := Round(WX * FZoom) + FOffsetX;
-  Result.Y := Round(WY * FZoom) + FOffsetY;
+  Result.X := Round(WX * FZoom + FOffsetX);
+  Result.Y := Round(WY * FZoom + FOffsetY);
 end;
 
 function TLazNodeEditor.ScreenToWorld(SX, SY: integer): TPointF;
@@ -1756,14 +1757,14 @@ begin
 
   if FGuideSnapXActive then
   begin
-    SX := Round(FGuideSnapX * FZoom) + FOffsetX;
+    SX := Round(FGuideSnapX * FZoom + FOffsetX);
     Canvas.MoveTo(SX, 0);
     Canvas.LineTo(SX, ClientHeight);
   end;
 
   if FGuideSnapYActive then
   begin
-    SY := Round(FGuideSnapY * FZoom) + FOffsetY;
+    SY := Round(FGuideSnapY * FZoom + FOffsetY);
     Canvas.MoveTo(0, SY);
     Canvas.LineTo(ClientWidth, SY);
   end;
