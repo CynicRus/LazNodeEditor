@@ -128,6 +128,9 @@ type
     FGuideSnapYActive: boolean;
     FGuideSnapX: single;
     FGuideSnapY: single;
+    FGuideLineColor: TColor;
+    FGuideLineStyle: TPenStyle;
+    FGuideLineWidth: integer;
 
     // Axes
     FShowAxes: boolean;
@@ -333,6 +336,12 @@ type
     property GridSize: integer read FGridSize write FGridSize default 40;
     property ShowSnapGuides: boolean read FShowSnapGuides
       write FShowSnapGuides default True;
+    property GuideLineColor: TColor
+      read FGuideLineColor write FGuideLineColor default clAqua;
+    property GuideLineStyle: TPenStyle read FGuideLineStyle
+      write FGuideLineStyle default psDash;
+    property GuideLineWidth: integer read FGuideLineWidth
+      write FGuideLineWidth default 1;
     property SnapToNodes: boolean read FSnapToNodes write FSnapToNodes default True;
     property NodeSnapDistance: single read FNodeSnapDistance write FNodeSnapDistance;
 
@@ -497,6 +506,9 @@ begin
   FGuideSnapYActive := False;
   FGuideSnapX := 0;
   FGuideSnapY := 0;
+  FGuideLineColor := clAqua;
+  FGuideLineStyle := psDash;
+  FGuideLineWidth := 1;
 
   // Axes defaults
   FShowAxes := False;
@@ -546,9 +558,8 @@ begin
   FPopupMenu.OnClose := @OnPopupClose;
 
   Canvas.Font.Quality := fqAntialiased;
-  // текст станет заметно лучше
-  Canvas.Pen.JoinStyle := pjsRound;       // важный параметр!
-  Canvas.Pen.EndCap := pecRound;      // важный параметр!
+  Canvas.Pen.JoinStyle := pjsRound;
+  Canvas.Pen.EndCap := pecRound;
 
   BuildContextMenu;
 end;
@@ -1749,11 +1760,12 @@ procedure TLazNodeEditor.DrawSnapGuides;
 var
   SX, SY: integer;
 begin
-  if not FShowSnapGuides then Exit;
+  if not FShowSnapGuides then
+    Exit;
 
-  Canvas.Pen.Style := psDash;
-  Canvas.Pen.Width := 1;
-  Canvas.Pen.Color := clAqua;
+  Canvas.Pen.Style := FGuideLineStyle;
+  Canvas.Pen.Width := FGuideLineWidth;
+  Canvas.Pen.Color := FGuideLineColor;
 
   if FGuideSnapXActive then
   begin
