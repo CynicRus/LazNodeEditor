@@ -128,6 +128,7 @@ type
   public
     constructor Create(AOwnsObjects: boolean = False);
     destructor Destroy; override;
+    function Remove(const AValue: T): integer;reintroduce;
   end;
 
 implementation
@@ -180,7 +181,7 @@ end;
 
 { TObjectDAG }
 
-constructor TObjectDAG.Create(AOwnsObjects: Boolean = False);
+constructor TObjectDAG.Create(AOwnsObjects: boolean);
 begin
   inherited Create;
   FOwnsObjects := AOwnsObjects;
@@ -196,6 +197,17 @@ begin
       Items[I].Free;
   end;
   inherited Destroy;
+end;
+
+function TObjectDAG.Remove(const AValue: T): integer;
+begin
+  Result := IndexOf(AValue);
+  if Result >= 0 then
+  begin
+   if FOwnsObjects then
+      Items[Result].Free;
+    Delete(Result);
+  end;
 end;
 
 { TDAG }
