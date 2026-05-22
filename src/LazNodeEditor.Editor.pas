@@ -170,10 +170,12 @@ type
     FOnLinkClick: TNodeLinkEvent;
     FOnBeforeConnectPins: TEditorConnectPinsEvent;
     FOnAfterConnectPins: TEditorPinsConnectedEvent;
+    FZoomStep: double;
 
     // Internal Logic
     procedure ClearPinSelection;
     procedure SelectPinInternal(APin: TNodePin; AAppend: boolean);
+    procedure SetZoomStep(AValue: double);
     procedure TogglePinSelection(APin: TNodePin);
     function SelectedPinCount: integer;
     function GetSelectedPin(Index: integer): TNodePin;
@@ -318,6 +320,7 @@ type
 
     property Graph: TNodeGraph read FGraph;
     property Zoom: double read FZoom write SetZoom;
+    property ZoomStep: double read FZoomStep write SetZoomStep;
     property Controller: TNodeEditorController read FController;
 
   published
@@ -481,6 +484,7 @@ begin
   FLastPaintTick := 0;
 
   FZoom := 1.0;
+  FZoomStep := 1.12;
   FSnapToGrid := False;
   FGridSize := 40;
   FSnapToNodes := True;
@@ -540,6 +544,11 @@ begin
 
   FPopupMenu := TPopupMenu.Create(Self);
   FPopupMenu.OnClose := @OnPopupClose;
+
+  Canvas.Font.Quality      := fqAntialiased; // текст станет заметно лучше
+  Canvas.Pen.JoinStyle     := pjsRound;       // важный параметр!
+  Canvas.Pen.EndCap        := pecRound;      // важный параметр!
+
   BuildContextMenu;
 end;
 
@@ -732,6 +741,12 @@ procedure TLazNodeEditor.SelectPinInternal(APin: TNodePin; AAppend: boolean);
 begin
   if FController.PinSelection <> nil then
     FController.PinSelection.SelectPin(APin, AAppend);
+end;
+
+procedure TLazNodeEditor.SetZoomStep(AValue: double);
+begin
+  if FZoomStep=AValue then Exit;
+  FZoomStep:=AValue;
 end;
 
 procedure TLazNodeEditor.TogglePinSelection(APin: TNodePin);
@@ -3399,18 +3414,32 @@ function TLazNodeEditor.DoMouseWheel(Shift: TShiftState; WheelDelta: integer;
   MousePos: TPoint): boolean;
 var
   OldZoom: double;
+  Factor: double;
 begin
   inherited DoMouseWheel(Shift, WheelDelta, MousePos);
   Result := True;
+
   OldZoom := FZoom;
-  if WheelDelta > 0 then FZoom := FZoom * 1.15
-  else
-    FZoom := FZoom / 1.15;
-  FZoom := EnsureRange(FZoom, 0.25, 3.0);
-  FOffsetX := MousePos.X - Round((MousePos.X - FOffsetX) * (FZoom / OldZoom));
-  FOffsetY := MousePos.Y - Round((MousePos.Y - FOffsetY) * (FZoom / OldZoom));
+
+  Factor := Power(FZoomStep, WheelDelta / 120.0);
+
+  if ssCtrl in Shift then
+    Factor := Power(Factor, 1.7)
+  else if ssShift in Shift then
+    Factor := Power(Factor, 0.4);
+
+  FZoom := OldZoom * Factor;
+  FZoom := EnsureRange(FZoom, 0.12, 6.0);
+
+  if Abs(OldZoom - FZoom) > 0.0001 then
+  begin
+    FOffsetX := MousePos.X - Round((MousePos.X - FOffsetX) * (FZoom / OldZoom));
+    FOffsetY := MousePos.Y - Round((MousePos.Y - FOffsetY) * (FZoom / OldZoom));
+  end;
+
   if Assigned(FOnZoomChanged) then
     FOnZoomChanged(Self);
+
   Invalidate;
 end;
 
