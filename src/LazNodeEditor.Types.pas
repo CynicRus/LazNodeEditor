@@ -125,6 +125,7 @@ type
     Advanced: boolean;
     AllowMultipleConnections: boolean;
     SortIndex: integer;
+    Connected: boolean;
 
     constructor Create(AName: string; ADir: TPinDirection; AKind: TPinKind;
       ALocalY: integer);

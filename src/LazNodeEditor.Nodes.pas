@@ -59,6 +59,7 @@ type
 
     Collapsed: boolean;
     ZOrder: integer;
+    Connected: boolean;
 
     constructor Create(ATitle: string; AX, AY: single; AWidth: integer = 180;
       AHeight: integer = 120); virtual;
@@ -341,7 +342,10 @@ procedure TCustomNode.AutoLayoutPins;
 var
   i: integer;
   MaxCount: integer;
-  NeededHeight: integer;
+  HeaderH: integer;
+  BottomPad: integer;
+  WorkH: integer;
+  StepY: integer;
 begin
   if VisualKind = nvReroute then
   begin
@@ -357,17 +361,26 @@ begin
   if VisualKind = nvComment then
     Exit;
 
-  for i := 0 to FInputs.Count - 1 do
-    TNodePin(FInputs[i]).LocalY := 44 + i * 26;
-
-  for i := 0 to FOutputs.Count - 1 do
-    TNodePin(FOutputs[i]).LocalY := 44 + i * 26;
+  HeaderH := 28;
+  BottomPad := 18;
 
   MaxCount := Max(FInputs.Count, FOutputs.Count);
-  NeededHeight := 44 + MaxCount * 26 + 18;
 
-  if NeededHeight > Height then
-    Height := NeededHeight;
+  if MaxCount <= 0 then
+    Exit;
+
+  WorkH := Height - HeaderH - BottomPad;
+
+  if MaxCount = 1 then
+    StepY := 0
+  else
+    StepY := WorkH div MaxCount;
+
+  for i := 0 to FInputs.Count - 1 do
+    TNodePin(FInputs[i]).LocalY := HeaderH + (i + 1) * WorkH div (FInputs.Count + 1);
+
+  for i := 0 to FOutputs.Count - 1 do
+    TNodePin(FOutputs[i]).LocalY := HeaderH + (i + 1) * WorkH div (FOutputs.Count + 1);
 end;
 
 procedure TCustomNode.AddInput(AName, ADataType: string; AKind: TPinKind;
