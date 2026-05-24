@@ -66,12 +66,6 @@ type
     Kind: single;      // primitive kind as float
   end;
 
-  TTexturedVertex = packed record
-    Pos: TVec2;
-    UV: TVec2;
-    Col: TVec4;
-  end;
-
   TTextCacheKey = record
     Text: string;
     FontName: string;
@@ -132,8 +126,7 @@ type
     FVertexCount: integer;
 
     FUniformProjection: GLint;
-    FUniformTexture: GLint;
-    FUniformHasTexture: GLint;
+    FUniformTex: GLint;
 
     FLazPen: TPen;
     FLazBrush: TBrush;
@@ -149,16 +142,11 @@ type
     FTextureCache: TFPList;
     FImagePointers: TFPList;
 
-    FTextureProgram: GLuint;
-    FTextureVAO: GLuint;
-    FTextureVBO: GLuint;
-    FTextureUniformProjection: GLint;
-    FTextureUniformTex: GLint;
-
     FTextCache: TTextCache;
     FCurrentFrame: int64;
 
     FVBOCapacity: integer;
+    FCurrentTexture: GLuint;
 
     procedure PenChanged(Sender: TObject);
     procedure BrushChanged(Sender: TObject);
@@ -170,11 +158,12 @@ type
     procedure DestroyGLResources;
     function  MakeTextCacheKey(const AText: string): string;
 
-
     procedure SetProjection;
     procedure ApplyScissor;
     procedure EnsureVertexCapacity(AExtra: integer);
     procedure Flush;
+
+    procedure SetActiveTexture(ATexID: GLuint);
 
     function ColorToVec4(const AColor: TColor; AAlpha: single = 1.0): TVec4;
     function AdjustColor(const AColor: TColor; AFactor: integer): TColor;
@@ -184,7 +173,6 @@ type
       AKind: TPrimitiveKind);
 
     procedure AddTriangle(const A, B, C: TAAColorVertex);
-
     procedure AddQuad(const A, B, C, D: TAAColorVertex);
 
     procedure AddSolidRect(const X1, Y1, X2, Y2: single; const AColor: TVec4);
@@ -202,15 +190,12 @@ type
       const AColor: TVec4);
     procedure AddAARoundRectStroke(const X1, Y1, X2, Y2, ARadiusX,
       ARadiusY, AStrokeWidth: single; const AColor: TVec4);
+
     procedure AddTexturedQuad(const X1, Y1, X2, Y2: single;
       const U1, V1, U2, V2: single; ATexID: GLuint; const AColor: TVec4);
 
 
     function GetTexture(AImage: TFPCustomImage): GLuint;
-    procedure LoadTextureShaders;
-    procedure CreateTextureBuffers;
-    procedure DrawTexturedQuad(Tex: GLuint; X, Y, W, H: integer;
-      U1, V1, U2, V2: single; const AColor: TVec4);
 
     function Angle16ToRad(AAngle16: Integer): Single;
     function PointOnEllipse(const R: TRect; AAngleRad: Single): TPoint;
@@ -261,8 +246,7 @@ type
       const SourceRect: TRect); override;
     procedure DoDraw(x, y: integer; const image: TFPCustomImage); override;
     procedure DoRadialPie(x1, y1, x2, y2, StartAngle16Deg,
-      Angle16DegLength: integer);
-      override;
+      Angle16DegLength: integer); override;
     procedure DoPolyBezier(Points: PPoint; NumPts: integer;
       Filled, Continuous: boolean); override;
 
@@ -271,7 +255,7 @@ type
     function GetClipping: boolean; override;
     procedure SetClipping(const AValue: boolean); override;
 
-    public
+  public
     constructor Create; overload;
     constructor Create(AControl: TOpenGLControl); overload;
     constructor CreateSize(AWidth, AHeight: integer); overload;
@@ -340,7 +324,7 @@ type
     property Font: TFont read FLazFont;
     property Width: integer read GetWidth;
     property Height: integer read GetHeight;
-    end;
+  end;
 
 function LinkProgram(AVS, AFS: GLuint): GLuint;
 function CompileShader(AShaderType: GLenum; ASource: pchar): GLuint;
@@ -360,69 +344,93 @@ const
     '  vLocal = aLocal;'#10 + '  vData0 = aData0;'#10 + '  vColor = aColor;'#10 +
     '  vKind = int(aKind + 0.5);'#10 + '}';
 
-  TexturedVertexShaderSrc: pchar =
-    '#version 330 core'#10 + 'layout(location = 0) in vec2 aPosition;'#10 +
-    'layout(location = 1) in vec2 aUV;'#10 +
-    'layout(location = 2) in vec4 aColor;'#10 + 'uniform mat4 uProjection;'#10 +
-    'out vec2 vUV;'#10 + 'out vec4 vColor;'#10 + 'void main() {'#10 +
-    '  gl_Position = uProjection * vec4(aPosition, 0.0, 1.0);'#10 +
-    '  vUV = aUV;'#10 + '  vColor = aColor;'#10 + '}';
-
-  TexturedFragmentShaderSrc: pchar =
-    '#version 330 core'#10 + 'in vec2 vUV;'#10 + 'in vec4 vColor;'#10 +
-    'uniform sampler2D uTex;'#10 + 'out vec4 FragColor;'#10 +
-    'void main() {'#10 + '  FragColor = texture(uTex, vUV) * vColor;'#10 + '}';
-
   FragmentShaderSrc: pchar =
-    '#version 330 core'#10 + 'in vec2 vLocal;'#10 + 'in vec4 vData0;'#10 +
-    'in vec4 vColor;'#10 + 'flat in int vKind;'#10 + 'out vec4 FragColor;'#10 +
+    '#version 330 core'#10 +
+    'in vec2 vLocal;'#10 +
+    'in vec4 vData0;'#10 +
+    'in vec4 vColor;'#10 +
+    'flat in int vKind;'#10 +
+    'uniform sampler2D uTex;'#10 +          // unified texture support
+    'out vec4 FragColor;'#10 +
     'float sdSegment(vec2 p, vec2 a, vec2 b) {'#10 + '  vec2 pa = p - a;'#10 +
     '  vec2 ba = b - a;'#10 +
     '  float h = clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0);'#10 +
-    '  return length(pa - ba * h);'#10 + '}'#10 + 'float sdBox(vec2 p, vec2 b) {'#10 +
+    '  return length(pa - ba * h);'#10 + '}'#10 +
+    'float sdBox(vec2 p, vec2 b) {'#10 +
     '  vec2 d = abs(p) - b;'#10 +
     '  return length(max(d, 0.0)) + min(max(d.x, d.y), 0.0);'#10 +
-    '}'#10 + 'float sdEllipse(vec2 p, vec2 r) {'#10 +
-    '  vec2 pr = p / max(r, vec2(1e-4));'#10 + '  float k = length(pr);'#10 +
-    '  float m = min(r.x, r.y);'#10 + '  return (k - 1.0) * m;'#10 +
-    '}'#10 + 'float sdRoundedBox(vec2 p, vec2 b, float r) {'#10 +
+    '}'#10 +
+    'float sdEllipse(vec2 p, vec2 r) {'#10 +
+    '  vec2 pr = p / max(r, vec2(1e-4));'#10 +
+    '  float k = length(pr);'#10 +
+    '  float m = min(r.x, r.y);'#10 +
+    '  return (k - 1.0) * m;'#10 + '}'#10 +
+    'float sdRoundedBox(vec2 p, vec2 b, float r) {'#10 +
     '  vec2 q = abs(p) - b + r;'#10 +
     '  return min(max(q.x, q.y), 0.0) + length(max(q, 0.0)) - r;'#10 +
-    '}'#10 + 'void main() {'#10 + '  float aa = 1.0;'#10 +
-    '  float alpha = 1.0;'#10 + '  float dist;'#10 + '  if (vKind == 0) {'#10 +
-    // solid
-    '    FragColor = vColor;'#10 + '    return;'#10 + '  }'#10 +
-    '  if (vKind == 1) {'#10 +          // line
-    '    vec2 a = vec2(0.0, 0.0);'#10 + '    vec2 b = vData0.xy;'#10 +
+    '}'#10 +
+    'void main() {'#10 +
+    '  float aa = 1.0;'#10 +
+    '  float alpha = 1.0;'#10 +
+    '  float dist;'#10 +
+    '  if (vKind == 8) {'#10 +                 // texture (unified)
+    '    vec4 texColor = texture(uTex, vLocal);'#10 +
+    '    FragColor = texColor * vColor;'#10 +
+    '    if (FragColor.a <= 0.001) discard;'#10 +
+    '    return;'#10 +
+    '  }'#10 +
+    '  if (vKind == 0) {'#10 +                 // solid
+    '    FragColor = vColor;'#10 +
+    '    return;'#10 +
+    '  }'#10 +
+    '  if (vKind == 1) {'#10 +                 // line
+    '    vec2 a = vec2(0.0, 0.0);'#10 +
+    '    vec2 b = vData0.xy;'#10 +
     '    float halfW = vData0.z;'#10 +
     '    dist = sdSegment(vLocal, a, b) - halfW;'#10 +
-    '    alpha = 1.0 - smoothstep(-aa, aa, dist);'#10 + '  }'#10 +
-    '  else if (vKind == 2) {'#10 +     // rect fill
-    '    vec2 halfSize = vData0.xy;'#10 + '    dist = sdBox(vLocal, halfSize);'#10 +
-    '    alpha = 1.0 - smoothstep(-aa, aa, dist);'#10 + '  }'#10 +
-    '  else if (vKind == 3) {'#10 +     // rect stroke
-    '    vec2 halfSize = vData0.xy;'#10 + '    float halfW = vData0.z;'#10 +
+    '    alpha = 1.0 - smoothstep(-aa, aa, dist);'#10 +
+    '  }'#10 +
+    '  else if (vKind == 2) {'#10 +           // rect fill
+    '    vec2 halfSize = vData0.xy;'#10 +
+    '    dist = sdBox(vLocal, halfSize);'#10 +
+    '    alpha = 1.0 - smoothstep(-aa, aa, dist);'#10 +
+    '  }'#10 +
+    '  else if (vKind == 3) {'#10 +           // rect stroke
+    '    vec2 halfSize = vData0.xy;'#10 +
+    '    float halfW = vData0.z;'#10 +
     '    float d = abs(sdBox(vLocal, halfSize)) - halfW;'#10 +
-    '    alpha = 1.0 - smoothstep(-aa, aa, d);'#10 + '  }'#10 +
-    '  else if (vKind == 4) {'#10 +     // ellipse fill
-    '    vec2 radius = vData0.xy;'#10 + '    dist = sdEllipse(vLocal, radius);'#10 +
-    '    alpha = 1.0 - smoothstep(-aa, aa, dist);'#10 + '  }'#10 +
-    '  else if (vKind == 5) {'#10 +     // ellipse stroke
-    '    vec2 radius = vData0.xy;'#10 + '    float halfW = vData0.z;'#10 +
+    '    alpha = 1.0 - smoothstep(-aa, aa, d);'#10 +
+    '  }'#10 +
+    '  else if (vKind == 4) {'#10 +           // ellipse fill
+    '    vec2 radius = vData0.xy;'#10 +
+    '    dist = sdEllipse(vLocal, radius);'#10 +
+    '    alpha = 1.0 - smoothstep(-aa, aa, dist);'#10 +
+    '  }'#10 +
+    '  else if (vKind == 5) {'#10 +           // ellipse stroke
+    '    vec2 radius = vData0.xy;'#10 +
+    '    float halfW = vData0.z;'#10 +
     '    float d = abs(sdEllipse(vLocal, radius)) - halfW;'#10 +
-    '    alpha = 1.0 - smoothstep(-aa, aa, d);'#10 + '  }'#10 +
-    '  else if (vKind == 6) {'#10 +     // roundrect fill
-    '    vec2 halfSize = vData0.xy;'#10 + '    float radius = vData0.z;'#10 +
+    '    alpha = 1.0 - smoothstep(-aa, aa, d);'#10 +
+    '  }'#10 +
+    '  else if (vKind == 6) {'#10 +           // roundrect fill
+    '    vec2 halfSize = vData0.xy;'#10 +
+    '    float radius = vData0.z;'#10 +
     '    dist = sdRoundedBox(vLocal, halfSize, radius);'#10 +
-    '    alpha = 1.0 - smoothstep(-aa, aa, dist);'#10 + '  }'#10 +
-    '  else if (vKind == 7) {'#10 +     // roundrect stroke
-    '    vec2 halfSize = vData0.xy;'#10 + '    float radius = vData0.z;'#10 +
+    '    alpha = 1.0 - smoothstep(-aa, aa, dist);'#10 +
+    '  }'#10 +
+    '  else if (vKind == 7) {'#10 +           // roundrect stroke
+    '    vec2 halfSize = vData0.xy;'#10 +
+    '    float radius = vData0.z;'#10 +
     '    float halfW  = vData0.w;'#10 +
     '    float d = abs(sdRoundedBox(vLocal, halfSize, radius)) - halfW;'#10 +
-    '    alpha = 1.0 - smoothstep(-aa, aa, d);'#10 + '  }'#10 +
-    '  else {'#10 + '    alpha = 1.0;'#10 + '  }'#10 +
+    '    alpha = 1.0 - smoothstep(-aa, aa, d);'#10 +
+    '  }'#10 +
+    '  else {'#10 +
+    '    alpha = 1.0;'#10 +
+    '  }'#10 +
     '  if (alpha <= 0.001) discard;'#10 +
-    '  FragColor = vec4(vColor.rgb, vColor.a * alpha);'#10 + '}';
+    '  FragColor = vec4(vColor.rgb, vColor.a * alpha);'#10 +
+    '}'#10;
 
 function MakeVec2(const X, Y: single): TVec2; inline;
 begin
@@ -534,7 +542,6 @@ begin
   TTT := TT * T;
 
   X := UUU * P0.X + 3 * UU * T * P1.X + 3 * U * TT * P2.X + TTT * P3.X;
-
   Y := UUU * P0.Y + 3 * UU * T * P1.Y + 3 * U * TT * P2.Y + TTT * P3.Y;
 
   Result := Point(Round(X), Round(Y));
@@ -674,8 +681,8 @@ begin
   FVAO := 0;
   FVBO := 0;
   FUniformProjection := -1;
-  FUniformTexture := -1;
-  FUniformHasTexture := -1;
+  FUniformTex := -1;
+
   FGLInitialized := False;
   FDrawing := False;
 
@@ -683,6 +690,9 @@ begin
   FTextureCache := TFPList.Create;
   FImagePointers := TFPList.Create;
   FTextCache := TTextCache.Create(TEXT_CACHE_MAX);
+
+  FCurrentTexture := 0;
+  FVBOCapacity := 0;
 end;
 
 constructor TGL2DCanvas.Create(AControl: TOpenGLControl);
@@ -712,7 +722,6 @@ begin
     try
       DestroyGLResources;
     except
-
     end;
   end;
 
@@ -727,7 +736,6 @@ begin
 
   inherited Destroy;
 end;
-
 
 procedure TGL2DCanvas.PenChanged(Sender: TObject);
 begin
@@ -873,7 +881,6 @@ begin
   R := Red(C) + AFactor;
   G := Green(C) + AFactor;
   B := Blue(C) + AFactor;
-  // Clamp
   if R < 0 then R := 0;
   if R > 255 then R := 255;
   if G < 0 then G := 0;
@@ -902,8 +909,6 @@ begin
 
   LoadShaders;
   CreateBuffers;
-  LoadTextureShaders;
-  CreateTextureBuffers;
 
   FGLInitialized := True;
 end;
@@ -928,8 +933,9 @@ begin
   if FUniformProjection < 0 then
     raise Exception.Create('Uniform uProjection not found');
 
-  FUniformTexture := glGetUniformLocation(FProgram, 'uTexture');
-  FUniformHasTexture := glGetUniformLocation(FProgram, 'uHasTexture');
+  FUniformTex := glGetUniformLocation(FProgram, 'uTex');
+  if FUniformTex < 0 then
+    raise Exception.Create('Uniform uTex not found');
 end;
 
 procedure TGL2DCanvas.CreateBuffers;
@@ -973,22 +979,6 @@ var
   I: Integer;
   Pair: specialize TPair<string, TTextCacheEntry>;
 begin
-  if FTextureVAO <> 0 then
-  begin
-    glDeleteVertexArrays(1, @FTextureVAO);
-    FTextureVAO := 0;
-  end;
-  if FTextureVBO <> 0 then
-  begin
-    glDeleteBuffers(1, @FTextureVBO);
-    FTextureVBO := 0;
-  end;
-  if FTextureProgram <> 0 then
-  begin
-    glDeleteProgram(FTextureProgram);
-    FTextureProgram := 0;
-  end;
-
   if FVAO <> 0 then
   begin
     glDeleteVertexArrays(1, @FVAO);
@@ -1029,7 +1019,6 @@ begin
      FLazFont.Size,
      FLazFont.Color]);
 end;
-
 
 procedure TGL2DCanvas.SetProjection;
 var
@@ -1081,6 +1070,27 @@ begin
   SetLength(FVertices, NewCap);
 end;
 
+procedure TGL2DCanvas.SetActiveTexture(ATexID: GLuint);
+begin
+  if not FDrawing then
+    Exit;
+  if ATexID = FCurrentTexture then
+    Exit;
+
+  Flush;
+
+  FCurrentTexture := ATexID;
+
+  glActiveTexture(GL_TEXTURE0);
+  if ATexID <> 0 then
+    glBindTexture(GL_TEXTURE_2D, ATexID)
+  else
+    glBindTexture(GL_TEXTURE_2D, 0);
+
+  glUseProgram(FProgram);
+  glUniform1i(FUniformTex, 0);
+end;
+
 procedure TGL2DCanvas.Flush;
 var
   DataSize: integer;
@@ -1111,8 +1121,8 @@ begin
   FVertexCount := 0;
 end;
 
-procedure TGL2DCanvas.AddVertex(const APos, ALocal: TVec2;
-  const AData0, AColor: TVec4; AKind: TPrimitiveKind);
+procedure TGL2DCanvas.AddVertex(const APos, ALocal: TVec2; const AData0, AColor: TVec4;
+  AKind: TPrimitiveKind);
 begin
   if FVertexCount + 1 > Length(FVertices) then
     SetLength(FVertices, Length(FVertices) + 8192);
@@ -1127,6 +1137,12 @@ end;
 
 procedure TGL2DCanvas.AddTriangle(const A, B, C: TAAColorVertex);
 begin
+  if (A.Kind <> Ord(pkTexture)) and (FCurrentTexture <> 0) then
+  begin
+    Flush;
+    FCurrentTexture := 0;
+  end;
+
   EnsureVertexCapacity(3);
   FVertices[FVertexCount]     := A;
   FVertices[FVertexCount + 1] := B;
@@ -1146,41 +1162,13 @@ var
   P, L: TVec2;
   D: TVec4;
 begin
-  D.X := 0;
-  D.Y := 0;
-  D.Z := 0;
-  D.W := 0;
-  L.X := 0;
-  L.Y := 0;
+  D.X := 0; D.Y := 0; D.Z := 0; D.W := 0;
+  L.X := 0; L.Y := 0;
 
-  P.X := X1;
-  P.Y := Y1;
-  V0.Position := P;
-  V0.Local := L;
-  V0.Data0 := D;
-  V0.Color := AColor;
-  V0.Kind := Ord(pkSolid);
-  P.X := X2;
-  P.Y := Y1;
-  V1.Position := P;
-  V1.Local := L;
-  V1.Data0 := D;
-  V1.Color := AColor;
-  V1.Kind := Ord(pkSolid);
-  P.X := X2;
-  P.Y := Y2;
-  V2.Position := P;
-  V2.Local := L;
-  V2.Data0 := D;
-  V2.Color := AColor;
-  V2.Kind := Ord(pkSolid);
-  P.X := X1;
-  P.Y := Y2;
-  V3.Position := P;
-  V3.Local := L;
-  V3.Data0 := D;
-  V3.Color := AColor;
-  V3.Kind := Ord(pkSolid);
+  P.X := X1; P.Y := Y1; V0.Position := P; V0.Local := L; V0.Data0 := D; V0.Color := AColor; V0.Kind := Ord(pkSolid);
+  P.X := X2; P.Y := Y1; V1.Position := P; V1.Local := L; V1.Data0 := D; V1.Color := AColor; V1.Kind := Ord(pkSolid);
+  P.X := X2; P.Y := Y2; V2.Position := P; V2.Local := L; V2.Data0 := D; V2.Color := AColor; V2.Kind := Ord(pkSolid);
+  P.X := X1; P.Y := Y2; V3.Position := P; V3.Local := L; V3.Data0 := D; V3.Color := AColor; V3.Kind := Ord(pkSolid);
 
   AddQuad(V0, V1, V2, V3);
 end;
@@ -1192,12 +1180,8 @@ var
   P, L: TVec2;
   D: TVec4;
 begin
-  D.X := 0;
-  D.Y := 0;
-  D.Z := 0;
-  D.W := 0;
-  L.X := 0;
-  L.Y := 0;
+  D.X := 0; D.Y := 0; D.Z := 0; D.W := 0;
+  L.X := 0; L.Y := 0;
 
   // Vertices: BL, BR, TR, TL (Counter Clockwise)
   // 0: BL (X1, Y2), 1: BR (X2, Y2), 2: TR (X2, Y1), 3: TL (X1, Y1)
@@ -1205,66 +1189,18 @@ begin
   if ADirection = gdVertical then
   begin
     // Top C1, Bottom C2
-    P.X := X1;
-    P.Y := Y2;
-    V0.Position := P;
-    V0.Local := L;
-    V0.Data0 := D;
-    V0.Color := C2;
-    V0.Kind := Ord(pkSolid);
-    P.X := X2;
-    P.Y := Y2;
-    V1.Position := P;
-    V1.Local := L;
-    V1.Data0 := D;
-    V1.Color := C2;
-    V1.Kind := Ord(pkSolid);
-    P.X := X2;
-    P.Y := Y1;
-    V2.Position := P;
-    V2.Local := L;
-    V2.Data0 := D;
-    V2.Color := C1;
-    V2.Kind := Ord(pkSolid);
-    P.X := X1;
-    P.Y := Y1;
-    V3.Position := P;
-    V3.Local := L;
-    V3.Data0 := D;
-    V3.Color := C1;
-    V3.Kind := Ord(pkSolid);
+    P.X := X1; P.Y := Y2; V0.Position := P; V0.Local := L; V0.Data0 := D; V0.Color := C2; V0.Kind := Ord(pkSolid);
+    P.X := X2; P.Y := Y2; V1.Position := P; V1.Local := L; V1.Data0 := D; V1.Color := C2; V1.Kind := Ord(pkSolid);
+    P.X := X2; P.Y := Y1; V2.Position := P; V2.Local := L; V2.Data0 := D; V2.Color := C1; V2.Kind := Ord(pkSolid);
+    P.X := X1; P.Y := Y1; V3.Position := P; V3.Local := L; V3.Data0 := D; V3.Color := C1; V3.Kind := Ord(pkSolid);
   end
   else // gdHorizontal
   begin
     // Left C1, Right C2
-    P.X := X1;
-    P.Y := Y2;
-    V0.Position := P;
-    V0.Local := L;
-    V0.Data0 := D;
-    V0.Color := C1;
-    V0.Kind := Ord(pkSolid);
-    P.X := X2;
-    P.Y := Y2;
-    V1.Position := P;
-    V1.Local := L;
-    V1.Data0 := D;
-    V1.Color := C2;
-    V1.Kind := Ord(pkSolid);
-    P.X := X2;
-    P.Y := Y1;
-    V2.Position := P;
-    V2.Local := L;
-    V2.Data0 := D;
-    V2.Color := C2;
-    V2.Kind := Ord(pkSolid);
-    P.X := X1;
-    P.Y := Y1;
-    V3.Position := P;
-    V3.Local := L;
-    V3.Data0 := D;
-    V3.Color := C1;
-    V3.Kind := Ord(pkSolid);
+    P.X := X1; P.Y := Y2; V0.Position := P; V0.Local := L; V0.Data0 := D; V0.Color := C1; V0.Kind := Ord(pkSolid);
+    P.X := X2; P.Y := Y2; V1.Position := P; V1.Local := L; V1.Data0 := D; V1.Color := C2; V1.Kind := Ord(pkSolid);
+    P.X := X2; P.Y := Y1; V2.Position := P; V2.Local := L; V2.Data0 := D; V2.Color := C2; V2.Kind := Ord(pkSolid);
+    P.X := X1; P.Y := Y1; V3.Position := P; V3.Local := L; V3.Data0 := D; V3.Color := C1; V3.Kind := Ord(pkSolid);
   end;
 
   AddQuad(V0, V1, V2, V3);
@@ -1305,40 +1241,17 @@ begin
   P3.X := X2 + TX * Pad - NX * Pad;
   P3.Y := Y2 + TY * Pad - NY * Pad;
 
-  L0.X := -Pad;
-  L0.Y := -Pad;
-  L1.X := -Pad;
-  L1.Y := Pad;
-  L2.X := L + Pad;
-  L2.Y := Pad;
-  L3.X := L + Pad;
-  L3.Y := -Pad;
+  L0.X := -Pad; L0.Y := -Pad;
+  L1.X := -Pad; L1.Y := Pad;
+  L2.X := L + Pad; L2.Y := Pad;
+  L3.X := L + Pad; L3.Y := -Pad;
 
-  D.X := L;
-  D.Y := 0;
-  D.Z := HalfW;
-  D.W := 0;
+  D.X := L; D.Y := 0; D.Z := HalfW; D.W := 0;
 
-  V0.Position := P0;
-  V0.Local := L0;
-  V0.Data0 := D;
-  V0.Color := AColor;
-  V0.Kind := Ord(pkLine);
-  V1.Position := P1;
-  V1.Local := L1;
-  V1.Data0 := D;
-  V1.Color := AColor;
-  V1.Kind := Ord(pkLine);
-  V2.Position := P2;
-  V2.Local := L2;
-  V2.Data0 := D;
-  V2.Color := AColor;
-  V2.Kind := Ord(pkLine);
-  V3.Position := P3;
-  V3.Local := L3;
-  V3.Data0 := D;
-  V3.Color := AColor;
-  V3.Kind := Ord(pkLine);
+  V0.Position := P0; V0.Local := L0; V0.Data0 := D; V0.Color := AColor; V0.Kind := Ord(pkLine);
+  V1.Position := P1; V1.Local := L1; V1.Data0 := D; V1.Color := AColor; V1.Kind := Ord(pkLine);
+  V2.Position := P2; V2.Local := L2; V2.Data0 := D; V2.Color := AColor; V2.Kind := Ord(pkLine);
+  V3.Position := P3; V3.Local := L3; V3.Data0 := D; V3.Color := AColor; V3.Kind := Ord(pkLine);
 
   AddQuad(V0, V1, V2, V3);
 end;
@@ -1357,49 +1270,22 @@ begin
   HY := Abs(Y2 - Y1) * 0.5;
   Pad := 1.5;
 
-  P0.X := CX - HX - Pad;
-  P0.Y := CY - HY - Pad;
-  P1.X := CX + HX + Pad;
-  P1.Y := CY - HY - Pad;
-  P2.X := CX + HX + Pad;
-  P2.Y := CY + HY + Pad;
-  P3.X := CX - HX - Pad;
-  P3.Y := CY + HY + Pad;
+  P0.X := CX - HX - Pad; P0.Y := CY - HY - Pad;
+  P1.X := CX + HX + Pad; P1.Y := CY - HY - Pad;
+  P2.X := CX + HX + Pad; P2.Y := CY + HY + Pad;
+  P3.X := CX - HX - Pad; P3.Y := CY + HY + Pad;
 
-  L0.X := -HX - Pad;
-  L0.Y := -HY - Pad;
-  L1.X := HX + Pad;
-  L1.Y := -HY - Pad;
-  L2.X := HX + Pad;
-  L2.Y := HY + Pad;
-  L3.X := -HX - Pad;
-  L3.Y := HY + Pad;
+  L0.X := -HX - Pad; L0.Y := -HY - Pad;
+  L1.X := HX + Pad; L1.Y := -HY - Pad;
+  L2.X := HX + Pad; L2.Y := HY + Pad;
+  L3.X := -HX - Pad; L3.Y := HY + Pad;
 
-  D.X := HX;
-  D.Y := HY;
-  D.Z := 0;
-  D.W := 0;
+  D.X := HX; D.Y := HY; D.Z := 0; D.W := 0;
 
-  V0.Position := P0;
-  V0.Local := L0;
-  V0.Data0 := D;
-  V0.Color := AColor;
-  V0.Kind := Ord(pkRectFill);
-  V1.Position := P1;
-  V1.Local := L1;
-  V1.Data0 := D;
-  V1.Color := AColor;
-  V1.Kind := Ord(pkRectFill);
-  V2.Position := P2;
-  V2.Local := L2;
-  V2.Data0 := D;
-  V2.Color := AColor;
-  V2.Kind := Ord(pkRectFill);
-  V3.Position := P3;
-  V3.Local := L3;
-  V3.Data0 := D;
-  V3.Color := AColor;
-  V3.Kind := Ord(pkRectFill);
+  V0.Position := P0; V0.Local := L0; V0.Data0 := D; V0.Color := AColor; V0.Kind := Ord(pkRectFill);
+  V1.Position := P1; V1.Local := L1; V1.Data0 := D; V1.Color := AColor; V1.Kind := Ord(pkRectFill);
+  V2.Position := P2; V2.Local := L2; V2.Data0 := D; V2.Color := AColor; V2.Kind := Ord(pkRectFill);
+  V3.Position := P3; V3.Local := L3; V3.Data0 := D; V3.Color := AColor; V3.Kind := Ord(pkRectFill);
 
   AddQuad(V0, V1, V2, V3);
 end;
@@ -1420,49 +1306,22 @@ begin
   HalfW := Max(0.5, AStrokeWidth * 0.5);
   Pad := HalfW + 1.5;
 
-  P0.X := CX - HX - Pad;
-  P0.Y := CY - HY - Pad;
-  P1.X := CX + HX + Pad;
-  P1.Y := CY - HY - Pad;
-  P2.X := CX + HX + Pad;
-  P2.Y := CY + HY + Pad;
-  P3.X := CX - HX - Pad;
-  P3.Y := CY + HY + Pad;
+  P0.X := CX - HX - Pad; P0.Y := CY - HY - Pad;
+  P1.X := CX + HX + Pad; P1.Y := CY - HY - Pad;
+  P2.X := CX + HX + Pad; P2.Y := CY + HY + Pad;
+  P3.X := CX - HX - Pad; P3.Y := CY + HY + Pad;
 
-  L0.X := -HX - Pad;
-  L0.Y := -HY - Pad;
-  L1.X := HX + Pad;
-  L1.Y := -HY - Pad;
-  L2.X := HX + Pad;
-  L2.Y := HY + Pad;
-  L3.X := -HX - Pad;
-  L3.Y := HY + Pad;
+  L0.X := -HX - Pad; L0.Y := -HY - Pad;
+  L1.X := HX + Pad; L1.Y := -HY - Pad;
+  L2.X := HX + Pad; L2.Y := HY + Pad;
+  L3.X := -HX - Pad; L3.Y := HY + Pad;
 
-  D.X := HX;
-  D.Y := HY;
-  D.Z := HalfW;
-  D.W := 0;
+  D.X := HX; D.Y := HY; D.Z := HalfW; D.W := 0;
 
-  V0.Position := P0;
-  V0.Local := L0;
-  V0.Data0 := D;
-  V0.Color := AColor;
-  V0.Kind := Ord(pkRectStroke);
-  V1.Position := P1;
-  V1.Local := L1;
-  V1.Data0 := D;
-  V1.Color := AColor;
-  V1.Kind := Ord(pkRectStroke);
-  V2.Position := P2;
-  V2.Local := L2;
-  V2.Data0 := D;
-  V2.Color := AColor;
-  V2.Kind := Ord(pkRectStroke);
-  V3.Position := P3;
-  V3.Local := L3;
-  V3.Data0 := D;
-  V3.Color := AColor;
-  V3.Kind := Ord(pkRectStroke);
+  V0.Position := P0; V0.Local := L0; V0.Data0 := D; V0.Color := AColor; V0.Kind := Ord(pkRectStroke);
+  V1.Position := P1; V1.Local := L1; V1.Data0 := D; V1.Color := AColor; V1.Kind := Ord(pkRectStroke);
+  V2.Position := P2; V2.Local := L2; V2.Data0 := D; V2.Color := AColor; V2.Kind := Ord(pkRectStroke);
+  V3.Position := P3; V3.Local := L3; V3.Data0 := D; V3.Color := AColor; V3.Kind := Ord(pkRectStroke);
 
   AddQuad(V0, V1, V2, V3);
 end;
@@ -1482,49 +1341,22 @@ begin
   RY := Abs(Y2 - Y1) * 0.5;
   Pad := 1.5;
 
-  P0.X := CX - RX - Pad;
-  P0.Y := CY - RY - Pad;
-  P1.X := CX + RX + Pad;
-  P1.Y := CY - RY - Pad;
-  P2.X := CX + RX + Pad;
-  P2.Y := CY + RY + Pad;
-  P3.X := CX - RX - Pad;
-  P3.Y := CY + RY + Pad;
+  P0.X := CX - RX - Pad; P0.Y := CY - RY - Pad;
+  P1.X := CX + RX + Pad; P1.Y := CY - RY - Pad;
+  P2.X := CX + RX + Pad; P2.Y := CY + RY + Pad;
+  P3.X := CX - RX - Pad; P3.Y := CY + RY + Pad;
 
-  L0.X := -RX - Pad;
-  L0.Y := -RY - Pad;
-  L1.X := RX + Pad;
-  L1.Y := -RY - Pad;
-  L2.X := RX + Pad;
-  L2.Y := RY + Pad;
-  L3.X := -RX - Pad;
-  L3.Y := RY + Pad;
+  L0.X := -RX - Pad; L0.Y := -RY - Pad;
+  L1.X := RX + Pad; L1.Y := -RY - Pad;
+  L2.X := RX + Pad; L2.Y := RY + Pad;
+  L3.X := -RX - Pad; L3.Y := RY + Pad;
 
-  D.X := RX;
-  D.Y := RY;
-  D.Z := 0;
-  D.W := 0;
+  D.X := RX; D.Y := RY; D.Z := 0; D.W := 0;
 
-  V0.Position := P0;
-  V0.Local := L0;
-  V0.Data0 := D;
-  V0.Color := AColor;
-  V0.Kind := Ord(pkEllipseFill);
-  V1.Position := P1;
-  V1.Local := L1;
-  V1.Data0 := D;
-  V1.Color := AColor;
-  V1.Kind := Ord(pkEllipseFill);
-  V2.Position := P2;
-  V2.Local := L2;
-  V2.Data0 := D;
-  V2.Color := AColor;
-  V2.Kind := Ord(pkEllipseFill);
-  V3.Position := P3;
-  V3.Local := L3;
-  V3.Data0 := D;
-  V3.Color := AColor;
-  V3.Kind := Ord(pkEllipseFill);
+  V0.Position := P0; V0.Local := L0; V0.Data0 := D; V0.Color := AColor; V0.Kind := Ord(pkEllipseFill);
+  V1.Position := P1; V1.Local := L1; V1.Data0 := D; V1.Color := AColor; V1.Kind := Ord(pkEllipseFill);
+  V2.Position := P2; V2.Local := L2; V2.Data0 := D; V2.Color := AColor; V2.Kind := Ord(pkEllipseFill);
+  V3.Position := P3; V3.Local := L3; V3.Data0 := D; V3.Color := AColor; V3.Kind := Ord(pkEllipseFill);
 
   AddQuad(V0, V1, V2, V3);
 end;
@@ -1545,49 +1377,22 @@ begin
   HalfW := Max(0.5, AStrokeWidth * 0.5);
   Pad := HalfW + 1.5;
 
-  P0.X := CX - RX - Pad;
-  P0.Y := CY - RY - Pad;
-  P1.X := CX + RX + Pad;
-  P1.Y := CY - RY - Pad;
-  P2.X := CX + RX + Pad;
-  P2.Y := CY + RY + Pad;
-  P3.X := CX - RX - Pad;
-  P3.Y := CY + RY + Pad;
+  P0.X := CX - RX - Pad; P0.Y := CY - RY - Pad;
+  P1.X := CX + RX + Pad; P1.Y := CY - RY - Pad;
+  P2.X := CX + RX + Pad; P2.Y := CY + RY + Pad;
+  P3.X := CX - RX - Pad; P3.Y := CY + RY + Pad;
 
-  L0.X := -RX - Pad;
-  L0.Y := -RY - Pad;
-  L1.X := RX + Pad;
-  L1.Y := -RY - Pad;
-  L2.X := RX + Pad;
-  L2.Y := RY + Pad;
-  L3.X := -RX - Pad;
-  L3.Y := RY + Pad;
+  L0.X := -RX - Pad; L0.Y := -RY - Pad;
+  L1.X := RX + Pad; L1.Y := -RY - Pad;
+  L2.X := RX + Pad; L2.Y := RY + Pad;
+  L3.X := -RX - Pad; L3.Y := RY + Pad;
 
-  D.X := RX;
-  D.Y := RY;
-  D.Z := HalfW;
-  D.W := 0;
+  D.X := RX; D.Y := RY; D.Z := HalfW; D.W := 0;
 
-  V0.Position := P0;
-  V0.Local := L0;
-  V0.Data0 := D;
-  V0.Color := AColor;
-  V0.Kind := Ord(pkEllipseStroke);
-  V1.Position := P1;
-  V1.Local := L1;
-  V1.Data0 := D;
-  V1.Color := AColor;
-  V1.Kind := Ord(pkEllipseStroke);
-  V2.Position := P2;
-  V2.Local := L2;
-  V2.Data0 := D;
-  V2.Color := AColor;
-  V2.Kind := Ord(pkEllipseStroke);
-  V3.Position := P3;
-  V3.Local := L3;
-  V3.Data0 := D;
-  V3.Color := AColor;
-  V3.Kind := Ord(pkEllipseStroke);
+  V0.Position := P0; V0.Local := L0; V0.Data0 := D; V0.Color := AColor; V0.Kind := Ord(pkEllipseStroke);
+  V1.Position := P1; V1.Local := L1; V1.Data0 := D; V1.Color := AColor; V1.Kind := Ord(pkEllipseStroke);
+  V2.Position := P2; V2.Local := L2; V2.Data0 := D; V2.Color := AColor; V2.Kind := Ord(pkEllipseStroke);
+  V3.Position := P3; V3.Local := L3; V3.Data0 := D; V3.Color := AColor; V3.Kind := Ord(pkEllipseStroke);
 
   AddQuad(V0, V1, V2, V3);
 end;
@@ -1612,50 +1417,23 @@ begin
 
   Pad := 1.5;
 
-  P0.X := CX - HX - Pad;
-  P0.Y := CY - HY - Pad;
-  P1.X := CX + HX + Pad;
-  P1.Y := CY - HY - Pad;
-  P2.X := CX + HX + Pad;
-  P2.Y := CY + HY + Pad;
-  P3.X := CX - HX - Pad;
-  P3.Y := CY + HY + Pad;
+  P0.X := CX - HX - Pad; P0.Y := CY - HY - Pad;
+  P1.X := CX + HX + Pad; P1.Y := CY - HY - Pad;
+  P2.X := CX + HX + Pad; P2.Y := CY + HY + Pad;
+  P3.X := CX - HX - Pad; P3.Y := CY + HY + Pad;
 
-  L0.X := -HX - Pad;
-  L0.Y := -HY - Pad;
-  L1.X := HX + Pad;
-  L1.Y := -HY - Pad;
-  L2.X := HX + Pad;
-  L2.Y := HY + Pad;
-  L3.X := -HX - Pad;
-  L3.Y := HY + Pad;
+  L0.X := -HX - Pad; L0.Y := -HY - Pad;
+  L1.X := HX + Pad; L1.Y := -HY - Pad;
+  L2.X := HX + Pad; L2.Y := HY + Pad;
+  L3.X := -HX - Pad; L3.Y := HY + Pad;
 
   // Pass radius in Z
-  D.X := HX;
-  D.Y := HY;
-  D.Z := RX;
-  D.W := 0;
+  D.X := HX; D.Y := HY; D.Z := RX; D.W := 0;
 
-  V0.Position := P0;
-  V0.Local := L0;
-  V0.Data0 := D;
-  V0.Color := AColor;
-  V0.Kind := Ord(pkRoundRectFill);
-  V1.Position := P1;
-  V1.Local := L1;
-  V1.Data0 := D;
-  V1.Color := AColor;
-  V1.Kind := Ord(pkRoundRectFill);
-  V2.Position := P2;
-  V2.Local := L2;
-  V2.Data0 := D;
-  V2.Color := AColor;
-  V2.Kind := Ord(pkRoundRectFill);
-  V3.Position := P3;
-  V3.Local := L3;
-  V3.Data0 := D;
-  V3.Color := AColor;
-  V3.Kind := Ord(pkRoundRectFill);
+  V0.Position := P0; V0.Local := L0; V0.Data0 := D; V0.Color := AColor; V0.Kind := Ord(pkRoundRectFill);
+  V1.Position := P1; V1.Local := L1; V1.Data0 := D; V1.Color := AColor; V1.Kind := Ord(pkRoundRectFill);
+  V2.Position := P2; V2.Local := L2; V2.Data0 := D; V2.Color := AColor; V2.Kind := Ord(pkRoundRectFill);
+  V3.Position := P3; V3.Local := L3; V3.Data0 := D; V3.Color := AColor; V3.Kind := Ord(pkRoundRectFill);
 
   AddQuad(V0, V1, V2, V3);
 end;
@@ -1681,52 +1459,85 @@ begin
 
   Pad := HalfW + 1.5;
 
-  P0.X := CX - HX - Pad;
-  P0.Y := CY - HY - Pad;
-  P1.X := CX + HX + Pad;
-  P1.Y := CY - HY - Pad;
-  P2.X := CX + HX + Pad;
-  P2.Y := CY + HY + Pad;
-  P3.X := CX - HX - Pad;
-  P3.Y := CY + HY + Pad;
+  P0.X := CX - HX - Pad; P0.Y := CY - HY - Pad;
+  P1.X := CX + HX + Pad; P1.Y := CY - HY - Pad;
+  P2.X := CX + HX + Pad; P2.Y := CY + HY + Pad;
+  P3.X := CX - HX - Pad; P3.Y := CY + HY + Pad;
 
-  L0.X := -HX - Pad;
-  L0.Y := -HY - Pad;
-  L1.X := HX + Pad;
-  L1.Y := -HY - Pad;
-  L2.X := HX + Pad;
-  L2.Y := HY + Pad;
-  L3.X := -HX - Pad;
-  L3.Y := HY + Pad;
+  L0.X := -HX - Pad; L0.Y := -HY - Pad;
+  L1.X := HX + Pad; L1.Y := -HY - Pad;
+  L2.X := HX + Pad; L2.Y := HY + Pad;
+  L3.X := -HX - Pad; L3.Y := HY + Pad;
 
   // Z = Radius, W = HalfWidth
-  D.X := HX;
-  D.Y := HY;
-  D.Z := RX;
-  D.W := HalfW;
+  D.X := HX; D.Y := HY; D.Z := RX; D.W := HalfW;
 
-  V0.Position := P0;
-  V0.Local := L0;
-  V0.Data0 := D;
-  V0.Color := AColor;
-  V0.Kind := Ord(pkRoundRectStroke);
-  V1.Position := P1;
-  V1.Local := L1;
-  V1.Data0 := D;
-  V1.Color := AColor;
-  V1.Kind := Ord(pkRoundRectStroke);
-  V2.Position := P2;
-  V2.Local := L2;
-  V2.Data0 := D;
-  V2.Color := AColor;
-  V2.Kind := Ord(pkRoundRectStroke);
-  V3.Position := P3;
-  V3.Local := L3;
-  V3.Data0 := D;
-  V3.Color := AColor;
-  V3.Kind := Ord(pkRoundRectStroke);
+  V0.Position := P0; V0.Local := L0; V0.Data0 := D; V0.Color := AColor; V0.Kind := Ord(pkRoundRectStroke);
+  V1.Position := P1; V1.Local := L1; V1.Data0 := D; V1.Color := AColor; V1.Kind := Ord(pkRoundRectStroke);
+  V2.Position := P2; V2.Local := L2; V2.Data0 := D; V2.Color := AColor; V2.Kind := Ord(pkRoundRectStroke);
+  V3.Position := P3; V3.Local := L3; V3.Data0 := D; V3.Color := AColor; V3.Kind := Ord(pkRoundRectStroke);
 
   AddQuad(V0, V1, V2, V3);
+end;
+
+procedure TGL2DCanvas.AddTexturedQuad(const X1, Y1, X2, Y2: Single;
+  const U1, V1, U2, V2: Single; ATexID: GLuint; const AColor: TVec4);
+var
+  Vert0, Vert1, Vert2, Vert3: TAAColorVertex;
+  P, L: TVec2;
+  D: TVec4;
+begin
+  if ATexID = 0 then
+    Exit;
+
+  SetActiveTexture(ATexID);
+
+  D.X := 0;
+  D.Y := 0;
+  D.Z := 0;
+  D.W := 0;
+
+  P.X := X1;
+  P.Y := Y1;
+  L.X := U1;
+  L.Y := V1;
+  Vert0.Position := P;
+  Vert0.Local := L;
+  Vert0.Data0 := D;
+  Vert0.Color := AColor;
+  Vert0.Kind := Ord(pkTexture);
+
+  P.X := X2;
+  P.Y := Y1;
+  L.X := U2;
+  L.Y := V1;
+  Vert1.Position := P;
+  Vert1.Local := L;
+  Vert1.Data0 := D;
+  Vert1.Color := AColor;
+  Vert1.Kind := Ord(pkTexture);
+
+  P.X := X2;
+  P.Y := Y2;
+  L.X := U2;
+  L.Y := V2;
+  Vert2.Position := P;
+  Vert2.Local := L;
+  Vert2.Data0 := D;
+  Vert2.Color := AColor;
+  Vert2.Kind := Ord(pkTexture);
+
+  P.X := X1;
+  P.Y := Y2;
+  L.X := U1;
+  L.Y := V2;
+  Vert3.Position := P;
+  Vert3.Local := L;
+  Vert3.Data0 := D;
+  Vert3.Color := AColor;
+  Vert3.Kind := Ord(pkTexture);
+
+  AddQuad(Vert0, Vert1, Vert2, Vert3);
 end;
 
 function TGL2DCanvas.GetTexture(AImage: TFPCustomImage): GLuint;
@@ -1753,127 +1564,6 @@ begin
   end;
 end;
 
-procedure TGL2DCanvas.LoadTextureShaders;
-var
-  VS, FS: GLuint;
-begin
-  VS := CompileShader(GL_VERTEX_SHADER, TexturedVertexShaderSrc);
-  try
-    FS := CompileShader(GL_FRAGMENT_SHADER, TexturedFragmentShaderSrc);
-    try
-      FTextureProgram := LinkProgram(VS, FS);
-    finally
-      glDeleteShader(FS);
-    end;
-  finally
-    glDeleteShader(VS);
-  end;
-
-  FTextureUniformProjection := glGetUniformLocation(FTextureProgram, 'uProjection');
-  FTextureUniformTex := glGetUniformLocation(FTextureProgram, 'uTex');
-end;
-
-procedure TGL2DCanvas.CreateTextureBuffers;
-var
-  Stride: GLsizei;
-begin
-  glGenVertexArrays(1, @FTextureVAO);
-  glGenBuffers(1, @FTextureVBO);
-
-  glBindVertexArray(FTextureVAO);
-  glBindBuffer(GL_ARRAY_BUFFER, FTextureVBO);
-  glBufferData(GL_ARRAY_BUFFER, SizeOf(TTexturedVertex) * 6, nil, GL_DYNAMIC_DRAW);
-
-  Stride := SizeOf(TTexturedVertex);
-
-  glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, Stride, Pointer(PtrUInt(0)));
-  glEnableVertexAttribArray(0);
-
-  glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, Stride,
-    Pointer(PtrUInt(SizeOf(TVec2))));
-  glEnableVertexAttribArray(1);
-
-  glVertexAttribPointer(2, 4, GL_FLOAT, GL_FALSE, Stride,
-    Pointer(PtrUInt(SizeOf(TVec2) * 2)));
-  glEnableVertexAttribArray(2);
-
-  glBindBuffer(GL_ARRAY_BUFFER, 0);
-  glBindVertexArray(0);
-end;
-
-procedure TGL2DCanvas.DrawTexturedQuad(Tex: GLuint; X, Y, W, H: integer; U1,
-  V1, U2, V2: single; const AColor: TVec4);
-var
-  V: array[0..5] of TTexturedVertex;
-  Proj: array[0..15] of Single;
-begin
-  if Tex = 0 then Exit;
-
-  BuildProjection(FWidth, FHeight, Proj);
-
-  V[0].Pos := MakeVec2(X, Y);
-  V[0].UV := MakeVec2(U1, V1);
-  V[0].Col := AColor;
-
-  V[1].Pos := MakeVec2(X + W, Y);
-  V[1].UV := MakeVec2(U2, V1);
-  V[1].Col := AColor;
-
-  V[2].Pos := MakeVec2(X + W, Y + H);
-  V[2].UV := MakeVec2(U2, V2);
-  V[2].Col := AColor;
-
-  V[3].Pos := MakeVec2(X, Y);
-  V[3].UV := MakeVec2(U1, V1);
-  V[3].Col := AColor;
-
-  V[4].Pos := MakeVec2(X + W, Y + H);
-  V[4].UV := MakeVec2(U2, V2);
-  V[4].Col := AColor;
-
-  V[5].Pos := MakeVec2(X, Y + H);
-  V[5].UV := MakeVec2(U1, V2);
-  V[5].Col := AColor;
-
-  glUseProgram(FTextureProgram);
-  glUniformMatrix4fv(FTextureUniformProjection, 1, GL_FALSE, @Proj[0]);
-  glUniform1i(FTextureUniformTex, 0);
-
-  glActiveTexture(GL_TEXTURE0);
-  glBindTexture(GL_TEXTURE_2D, Tex);
-
-  glBindVertexArray(FTextureVAO);
-  glBindBuffer(GL_ARRAY_BUFFER, FTextureVBO);
-  glBufferSubData(GL_ARRAY_BUFFER, 0, SizeOf(V), @V[0]);
-
-  glDrawArrays(GL_TRIANGLES, 0, 6);
-
-  glBindBuffer(GL_ARRAY_BUFFER, 0);
-  glBindVertexArray(0);
-  glBindTexture(GL_TEXTURE_2D, 0);
-end;
-
-procedure TGL2DCanvas.AddTexturedQuad(const X1, Y1, X2, Y2: single;
-  const U1, V1, U2, V2: single; ATexID: GLuint; const AColor: TVec4);
-var
-  Proj: array[0..15] of single;
-  W, H: integer;
-begin
-  if ATexID = 0 then
-    Exit;
-
-  Flush;
-  EnsureGLReady;
-
-  W := Round(X2 - X1);
-  H := Round(Y2 - Y1);
-  if (W <= 0) or (H <= 0) then
-    Exit;
-
-  BuildProjection(FWidth, FHeight, Proj);
-  DrawTexturedQuad(ATexID, Round(X1), Round(Y1), W, H, U1, V1, U2, V2, AColor);
-end;
-
 procedure TGL2DCanvas.BeginDraw;
 begin
   if not Assigned(FControl) then
@@ -1896,6 +1586,7 @@ begin
   ApplyScissor;
 
   FVertexCount := 0;
+  FCurrentTexture := 0;
   FDrawing := True;
 end;
 
@@ -1973,35 +1664,19 @@ begin
     Exit;
 
   Col := ColorToVec4(FLazBrush.Color);
-  D.X := 0;
-  D.Y := 0;
-  D.Z := 0;
-  D.W := 0;
-  Z.X := 0;
-  Z.Y := 0;
+  D.X := 0; D.Y := 0; D.Z := 0; D.W := 0;
+  Z.X := 0; Z.Y := 0;
 
-  A.Position.X := points[0].X;
-  A.Position.Y := points[0].Y;
-  A.Local := Z;
-  A.Data0 := D;
-  A.Color := Col;
-  A.Kind := Ord(pkSolid);
+  A.Position.X := points[0].X; A.Position.Y := points[0].Y;
+  A.Local := Z; A.Data0 := D; A.Color := Col; A.Kind := Ord(pkSolid);
 
   for i := 1 to High(points) - 1 do
   begin
-    B.Position.X := points[i].X;
-    B.Position.Y := points[i].Y;
-    B.Local := Z;
-    B.Data0 := D;
-    B.Color := Col;
-    B.Kind := Ord(pkSolid);
+    B.Position.X := points[i].X; B.Position.Y := points[i].Y;
+    B.Local := Z; B.Data0 := D; B.Color := Col; B.Kind := Ord(pkSolid);
 
-    C.Position.X := points[i + 1].X;
-    C.Position.Y := points[i + 1].Y;
-    C.Local := Z;
-    C.Data0 := D;
-    C.Color := Col;
-    C.Kind := Ord(pkSolid);
+    C.Position.X := points[i + 1].X; C.Position.Y := points[i + 1].Y;
+    C.Local := Z; C.Data0 := D; C.Color := Col; C.Kind := Ord(pkSolid);
 
     AddTriangle(A, B, C);
   end;
@@ -2055,7 +1730,7 @@ begin
     ColorToVec4(FLazBrush.Color));
 end;
 
-{$IFDEF WINDOWS}
+{$IFDEF MSWINDOWS}
 function TGL2DCanvas.CreateTextTexture_Windows(const Text: ansistring; out W, H: Integer): GLuint;
 var
   Bmp: TBitmap;
@@ -2079,10 +1754,8 @@ begin
     W := Bmp.Canvas.TextWidth(Text);
     H := Bmp.Canvas.TextHeight(Text);
 
-    if W <= 0 then
-      W := 1;
-    if H <= 0 then
-      H := Max(1, FLazFont.Size + 4);
+    if W <= 0 then W := 1;
+    if H <= 0 then H := Max(1, FLazFont.Size + 4);
 
     Bmp.SetSize(W, H);
 
@@ -2169,10 +1842,8 @@ begin
     W := Bmp.Canvas.TextWidth(Text);
     H := Bmp.Canvas.TextHeight(Text);
 
-    if W <= 0 then
-      W := 1;
-    if H <= 0 then
-      H := Max(1, FLazFont.Size + 4);
+    if W <= 0 then W := 1;
+    if H <= 0 then H := Max(1, FLazFont.Size + 4);
 
     Bmp.SetSize(W, H);
 
@@ -2186,8 +1857,7 @@ begin
     Bmp.Canvas.TextOut(0, 0, Text);
 
     Img := Bmp.CreateIntfImage;
-    if Img = nil then
-      Exit;
+    if Img = nil then Exit;
 
     FontCol := ColorToRGB(FLazFont.Color);
     FR := Red(FontCol);
@@ -2240,7 +1910,7 @@ begin
 
   FControl.MakeCurrent;
   EnsureGLReady;
-  Flush;
+  Flush; // ensure previous geometry is flushed
 
   Inc(FCurrentFrame);
   Key := MakeTextCacheKey(Text);
@@ -2250,8 +1920,8 @@ begin
   begin
     Entry.LastUsedFrame := FCurrentFrame;
     FTextCache[Key] := Entry;
-    DrawTexturedQuad(Entry.TexID, x, y, Entry.Width, Entry.Height,
-      0, 0, 1, 1, MakeVec4(1, 1, 1, 1));
+    AddTexturedQuad(x, y, x + Entry.Width, y + Entry.Height,
+      0, 0, 1, 1, Entry.TexID, MakeVec4(1, 1, 1, 1));
     Exit;
   end;
 
@@ -2294,7 +1964,7 @@ begin
     end;
   end;
 
-  {$IFDEF WINDOWS}
+  {$IFDEF MSWINDOWS}
   Tex := CreateTextTexture_Windows(Text, W, H);
   {$ENDIF}
 
@@ -2310,7 +1980,7 @@ begin
     Entry.LastUsedFrame := FCurrentFrame;
     FTextCache.Add(Key, Entry);
 
-    DrawTexturedQuad(Tex, x, y, W, H, 0, 0, 1, 1, MakeVec4(1, 1, 1, 1));
+    AddTexturedQuad(x, y, x + W, y + H, 0, 0, 1, 1, Tex, MakeVec4(1, 1, 1, 1));
   end;
 end;
 
@@ -2394,7 +2064,6 @@ begin
   end;
 end;
 
-// В DoDraw — использовать GetTexture вместо прямого создания:
 procedure TGL2DCanvas.DoDraw(x, y: integer; const image: TFPCustomImage);
 var
   Tex: GLuint;
@@ -2444,20 +2113,11 @@ begin
   if Steps > 100 then Steps := 100;
 
   C := ColorToVec4(FLazBrush.Color);
-  D.X := 0;
-  D.Y := 0;
-  D.Z := 0;
-  D.W := 0;
-  Z.X := 0;
-  Z.Y := 0;
+  D.X := 0; D.Y := 0; D.Z := 0; D.W := 0;
+  Z.X := 0; Z.Y := 0;
 
-  Center.X := CX;
-  Center.Y := CY;
-  V0.Position := Center;
-  V0.Local := Z;
-  V0.Data0 := D;
-  V0.Color := C;
-  V0.Kind := Ord(pkSolid);
+  Center.X := CX; Center.Y := CY;
+  V0.Position := Center; V0.Local := Z; V0.Data0 := D; V0.Color := C; V0.Kind := Ord(pkSolid);
 
   P1.X := CX + Cos(StartAngle) * RX;
   P1.Y := CY + Sin(StartAngle) * RY;
@@ -2468,16 +2128,8 @@ begin
     P2.X := CX + Cos(Angle) * RX;
     P2.Y := CY + Sin(Angle) * RY;
 
-    V1.Position := P1;
-    V1.Local := Z;
-    V1.Data0 := D;
-    V1.Color := C;
-    V1.Kind := Ord(pkSolid);
-    V2.Position := P2;
-    V2.Local := Z;
-    V2.Data0 := D;
-    V2.Color := C;
-    V2.Kind := Ord(pkSolid);
+    V1.Position := P1; V1.Local := Z; V1.Data0 := D; V1.Color := C; V1.Kind := Ord(pkSolid);
+    V2.Position := P2; V2.Local := Z; V2.Data0 := D; V2.Color := C; V2.Kind := Ord(pkSolid);
 
     AddTriangle(V0, V1, V2);
     P1 := P2;
@@ -2668,13 +2320,10 @@ begin
   FControl.MakeCurrent;
   EnsureGLReady;
 
-  Tex := CreateTextureFromImage(Source);
-  try
+  Tex := GetTexture(Source);
+  if Tex <> 0 then
     AddTexturedQuad(x, y, x + w, y + h, 0, 0, 1, 1,
       Tex, MakeVec4(1, 1, 1, 1));
-  finally
-    DeleteTexture(Tex);
-  end;
 end;
 
 procedure TGL2DCanvas.Frame(const ARect: TRect);
