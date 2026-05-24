@@ -56,6 +56,8 @@ type
 
   TNodePinTypeFlags = set of TNodePinTypeFlag;
 
+  TPointfArray = array of TPointF;
+
   TNodeVisualKind = (nvNormal, nvReroute, nvComment);
   TGraphValidationIssueKind = (gviError, gviWarning);
 
