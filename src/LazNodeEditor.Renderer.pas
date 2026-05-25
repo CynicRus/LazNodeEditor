@@ -38,13 +38,13 @@ type
   TRendererBackend = (
     rbGDI,
     rbOpenGL2D
-  );
+    );
 
   TRenderCanvasKind = (
     rckNone,
     rckGDI,
     rckGL2D
-  );
+    );
 
   TRenderNodeDrawEvent = procedure(Sender: TObject; Canvas: TCanvas;
     ANode: TCustomNode; const ARect: TRect; Zoom: double;
@@ -77,6 +77,7 @@ type
     FGridColor: TColor;
     FGridStyle: TPenStyle;
     FGridWidth: integer;
+    FPinTextColor: TColor;
 
     FShowAxes: boolean;
     FAxesColor: TColor;
@@ -148,52 +149,88 @@ type
     property AxesThickness: integer read FAxesThickness write FAxesThickness default 2;
 
     property PinRadius: integer read FPinRadius write FPinRadius default 8;
-    property PinBorderWidth: integer read FPinBorderWidth write FPinBorderWidth default 1;
-    property PinBorderColor: TColor read FPinBorderColor write FPinBorderColor default clBlack;
-    property PinDefaultColor: TColor read FPinDefaultColor write FPinDefaultColor default clLime;
+    property PinBorderWidth: integer
+      read FPinBorderWidth write FPinBorderWidth default 1;
+    property PinBorderColor: TColor
+      read FPinBorderColor write FPinBorderColor default clBlack;
+    property PinDefaultColor: TColor read FPinDefaultColor
+      write FPinDefaultColor default clLime;
     property PinExecColor: TColor read FPinExecColor write FPinExecColor default clWhite;
-    property PinSelectedColor: TColor read FPinSelectedColor write FPinSelectedColor default clLime;
-    property PinHoverColor: TColor read FPinHoverColor write FPinHoverColor default clAqua;
-    property PinCompatibleColor: TColor read FPinCompatibleColor write FPinCompatibleColor default clAqua;
-    property PinIncompatibleColor: TColor read FPinIncompatibleColor write FPinIncompatibleColor default clRed;
+    property PinSelectedColor: TColor read FPinSelectedColor
+      write FPinSelectedColor default clLime;
+    property PinHoverColor: TColor read FPinHoverColor write FPinHoverColor default
+      clAqua;
+    property PinCompatibleColor: TColor read FPinCompatibleColor
+      write FPinCompatibleColor default clAqua;
+    property PinIncompatibleColor: TColor read FPinIncompatibleColor
+      write FPinIncompatibleColor default clRed;
+    property PinTextColor: TColor read FPinTextColor write FPinTextColor default clBlack;
 
     property LinkColor: TColor read FLinkColor write FLinkColor default clYellow;
-    property LinkSelectedColor: TColor read FLinkSelectedColor write FLinkSelectedColor default clRed;
-    property LinkHoverColor: TColor read FLinkHoverColor write FLinkHoverColor default clAqua;
+    property LinkSelectedColor: TColor read FLinkSelectedColor
+      write FLinkSelectedColor default clRed;
+    property LinkHoverColor: TColor
+      read FLinkHoverColor write FLinkHoverColor default clAqua;
     property LinkThickness: integer read FLinkThickness write FLinkThickness default 4;
-    property LinkSelectedThickness: integer read FLinkSelectedThickness write FLinkSelectedThickness default 5;
-    property TempLinkColor: TColor read FTempLinkColor write FTempLinkColor default clYellow;
-    property TempLinkThickness: integer read FTempLinkThickness write FTempLinkThickness default 3;
-    property TempLinkStyle: TPenStyle read FTempLinkStyle write FTempLinkStyle default psDot;
+    property LinkSelectedThickness: integer
+      read FLinkSelectedThickness write FLinkSelectedThickness default 5;
+    property TempLinkColor: TColor read FTempLinkColor write FTempLinkColor default
+      clYellow;
+    property TempLinkThickness: integer read FTempLinkThickness
+      write FTempLinkThickness default 3;
+    property TempLinkStyle: TPenStyle
+      read FTempLinkStyle write FTempLinkStyle default psDot;
 
-    property BoxSelectColor: TColor read FBoxSelectColor write FBoxSelectColor default clBlue;
-    property BoxSelectStyle: TPenStyle read FBoxSelectStyle write FBoxSelectStyle default psDash;
-    property BoxSelectWidth: integer read FBoxSelectWidth write FBoxSelectWidth default 1;
+    property BoxSelectColor: TColor
+      read FBoxSelectColor write FBoxSelectColor default clBlue;
+    property BoxSelectStyle: TPenStyle read FBoxSelectStyle
+      write FBoxSelectStyle default psDash;
+    property BoxSelectWidth: integer
+      read FBoxSelectWidth write FBoxSelectWidth default 1;
 
-    property GuideLineColor: TColor read FGuideLineColor write FGuideLineColor default clAqua;
-    property GuideLineStyle: TPenStyle read FGuideLineStyle write FGuideLineStyle default psDash;
-    property GuideLineWidth: integer read FGuideLineWidth write FGuideLineWidth default 1;
+    property GuideLineColor: TColor
+      read FGuideLineColor write FGuideLineColor default clAqua;
+    property GuideLineStyle: TPenStyle read FGuideLineStyle
+      write FGuideLineStyle default psDash;
+    property GuideLineWidth: integer
+      read FGuideLineWidth write FGuideLineWidth default 1;
 
-    property NodeBorderColor: TColor read FNodeBorderColor write FNodeBorderColor default clBlack;
-    property NodeHoverBorderColor: TColor read FNodeHoverBorderColor write FNodeHoverBorderColor default clBlue;
-    property NodeHighlightBorderColor: TColor read FNodeHighlightBorderColor write FNodeHighlightBorderColor default clAqua;
-    property NodeSelectedBorderColor: TColor read FNodeSelectedBorderColor write FNodeSelectedBorderColor default clRed;
+    property NodeBorderColor: TColor read FNodeBorderColor
+      write FNodeBorderColor default clBlack;
+    property NodeHoverBorderColor: TColor read FNodeHoverBorderColor
+      write FNodeHoverBorderColor default clBlue;
+    property NodeHighlightBorderColor: TColor
+      read FNodeHighlightBorderColor write FNodeHighlightBorderColor default clAqua;
+    property NodeSelectedBorderColor: TColor
+      read FNodeSelectedBorderColor write FNodeSelectedBorderColor default clRed;
 
-    property CommentHoverBorderColor: TColor read FCommentHoverBorderColor write FCommentHoverBorderColor default clBlue;
-    property CommentHighlightBorderColor: TColor read FCommentHighlightBorderColor write FCommentHighlightBorderColor default clAqua;
-    property CommentSelectedBorderColor: TColor read FCommentSelectedBorderColor write FCommentSelectedBorderColor default clRed;
+    property CommentHoverBorderColor: TColor
+      read FCommentHoverBorderColor write FCommentHoverBorderColor default clBlue;
+    property CommentHighlightBorderColor: TColor
+      read FCommentHighlightBorderColor write FCommentHighlightBorderColor default clAqua;
+    property CommentSelectedBorderColor: TColor
+      read FCommentSelectedBorderColor write FCommentSelectedBorderColor default clRed;
 
-    property RerouteOuterColor: TColor read FRerouteOuterColor write FRerouteOuterColor default $00F8F8F8;
-    property RerouteInnerColor: TColor read FRerouteInnerColor write FRerouteInnerColor default $00FFFFFF;
-    property RerouteBorderColor: TColor read FRerouteBorderColor write FRerouteBorderColor default $00404040;
-    property RerouteCenterBorderColor: TColor read FRerouteCenterBorderColor write FRerouteCenterBorderColor default $00808080;
-    property RerouteLineColor: TColor read FRerouteLineColor write FRerouteLineColor default $00505050;
+    property RerouteOuterColor: TColor read FRerouteOuterColor
+      write FRerouteOuterColor default $00F8F8F8;
+    property RerouteInnerColor: TColor read FRerouteInnerColor
+      write FRerouteInnerColor default $00FFFFFF;
+    property RerouteBorderColor: TColor read FRerouteBorderColor
+      write FRerouteBorderColor default $00404040;
+    property RerouteCenterBorderColor: TColor
+      read FRerouteCenterBorderColor write FRerouteCenterBorderColor default $00808080;
+    property RerouteLineColor: TColor read FRerouteLineColor
+      write FRerouteLineColor default $00505050;
 
-    property DragInfoFontColor: TColor read FDragInfoFontColor write FDragInfoFontColor default clBlack;
-    property DragInfoBackgroundColor: TColor read FDragInfoBackgroundColor write FDragInfoBackgroundColor default $00FFFFCC;
+    property DragInfoFontColor: TColor read FDragInfoFontColor
+      write FDragInfoFontColor default clBlack;
+    property DragInfoBackgroundColor: TColor
+      read FDragInfoBackgroundColor write FDragInfoBackgroundColor default $00FFFFCC;
 
-    property ResizeHandleBrushColor: TColor read FResizeHandleBrushColor write FResizeHandleBrushColor default clGray;
-    property ResizeHandlePenColor: TColor read FResizeHandlePenColor write FResizeHandlePenColor default clBlack;
+    property ResizeHandleBrushColor: TColor
+      read FResizeHandleBrushColor write FResizeHandleBrushColor default clGray;
+    property ResizeHandlePenColor: TColor read FResizeHandlePenColor
+      write FResizeHandlePenColor default clBlack;
   end;
 
   { TRenderContext }
@@ -298,8 +335,10 @@ type
     procedure EndFrame(const AContext: TRenderContext); virtual; abstract;
 
     procedure FillBackground(const AContext: TRenderContext); virtual;
-    procedure RenderComments(const AContext: TRenderContext; ASelectedPass: boolean); virtual;
-    procedure RenderRegularNodes(const AContext: TRenderContext; ASelectedPass: boolean); virtual;
+    procedure RenderComments(const AContext: TRenderContext;
+      ASelectedPass: boolean); virtual;
+    procedure RenderRegularNodes(const AContext: TRenderContext;
+      ASelectedPass: boolean); virtual;
     procedure RenderLinks(const AContext: TRenderContext); virtual;
     procedure RenderTempLink(const AContext: TRenderContext); virtual;
     procedure RenderBoxSelect(const AContext: TRenderContext); virtual;
@@ -314,7 +353,8 @@ type
 
     procedure DrawNode(ANode: TCustomNode; const AContext: TRenderContext); virtual;
     procedure DrawNodePins(ANode: TCustomNode; const AContext: TRenderContext); virtual;
-    procedure DrawNodeWithPins(ANode: TCustomNode; const AContext: TRenderContext); virtual;
+    procedure DrawNodeWithPins(ANode: TCustomNode;
+      const AContext: TRenderContext); virtual;
     procedure DrawLink(ALink: TNodeLink; const AContext: TRenderContext;
       ASelected, AHovered: boolean); virtual;
     procedure DrawTempBezier(const AContext: TRenderContext;
@@ -325,8 +365,9 @@ type
 
     procedure DefaultDrawNode(ANode: TCustomNode; const ARect: TRect;
       const AContext: TRenderContext); virtual;
-    procedure DefaultDrawPin(APin: TNodePin; const Center: TPoint; Radius: integer;
-      ASelected, AHovered, AHighlighted: boolean; const AContext: TRenderContext); virtual;
+    procedure DefaultDrawPin(APin: TNodePin; const Center: TPoint;
+      Radius: integer; ASelected, AHovered, AHighlighted: boolean;
+      const AContext: TRenderContext); virtual;
     procedure DefaultDrawLink(ALink: TNodeLink; const P0, P1, P2, P3: TPoint;
       ASelected, AHovered: boolean; const AContext: TRenderContext); virtual;
 
@@ -345,12 +386,17 @@ type
     procedure RectangleEx(const AContext: TRenderContext; const R: TRect); inline;
     procedure FillRectEx(const AContext: TRenderContext; const R: TRect); inline;
     procedure EllipseEx(const AContext: TRenderContext; L, T, R, B: integer); inline;
-    procedure TextOutEx(const AContext: TRenderContext; X, Y: integer; const S: string); inline;
-    function TextWidthEx(const AContext: TRenderContext; const S: string): integer; inline;
-    function TextHeightEx(const AContext: TRenderContext; const S: string): integer; inline;
+    procedure TextOutEx(const AContext: TRenderContext; X, Y: integer;
+      const S: string); inline;
+    function TextWidthEx(const AContext: TRenderContext; const S: string): integer;
+      inline;
+    function TextHeightEx(const AContext: TRenderContext;
+      const S: string): integer; inline;
 
-    function GetNodeScreenBounds(ANode: TCustomNode; const AContext: TRenderContext): TRect;
-    function GetResizeHandleRect(ANode: TCustomNode; const AContext: TRenderContext): TRect;
+    function GetNodeScreenBounds(ANode: TCustomNode;
+      const AContext: TRenderContext): TRect;
+    function GetResizeHandleRect(ANode: TCustomNode;
+      const AContext: TRenderContext): TRect;
     function GetPinScreenCenter(APin: TNodePin; const AContext: TRenderContext): TPoint;
 
   public
@@ -391,15 +437,21 @@ type
 
   TNodeEditorRendererFactory = class
   public
-    class function CreateRenderer(ABackend: TRendererBackend): INodeEditorRenderer; static;
+    class function CreateRenderer(ABackend: TRendererBackend): INodeEditorRenderer;
+      static;
   end;
 
 implementation
 
+function ZI(const AValue: integer; const AZoom: double): integer; inline;
+begin
+  Result := Max(1, Round(AValue * AZoom));
+end;
+
 function PtInRectF(const Pt: TPointF; const R: TRectF): boolean; inline;
 begin
-  Result := (Pt.X >= R.Left) and (Pt.X <= R.Right) and
-            (Pt.Y >= R.Top) and (Pt.Y <= R.Bottom);
+  Result := (Pt.X >= R.Left) and (Pt.X <= R.Right) and (Pt.Y >= R.Top) and
+    (Pt.Y <= R.Bottom);
 end;
 
 function CubicBezierPointF(const P0, P1, P2, P3: TPointF; T: single): TPointF;
@@ -447,6 +499,7 @@ begin
   FPinHoverColor := clAqua;
   FPinCompatibleColor := clAqua;
   FPinIncompatibleColor := clRed;
+  FPinTextColor := clBlack;
 
   FLinkColor := clYellow;
   FLinkSelectedColor := clRed;
@@ -789,7 +842,8 @@ begin
   DrawSnapGuideLines(AContext);
 end;
 
-procedure TAbstractNodeEditorRenderer.RenderResizeHandles(const AContext: TRenderContext);
+procedure TAbstractNodeEditorRenderer.RenderResizeHandles(
+  const AContext: TRenderContext);
 var
   i: integer;
   N: TCustomNode;
@@ -868,7 +922,7 @@ begin
     Exit;
 
   Handled := False;
-  if Assigned(AContext.OnDrawGrid)  then
+  if Assigned(AContext.OnDrawGrid) then
     AContext.OnDrawGrid(AContext.Sender, AContext.EventCanvas, AContext.VisibleWorldRect,
       AContext.Zoom, AContext.OffsetX, AContext.OffsetY, Handled);
 
@@ -907,14 +961,16 @@ begin
 
   SetPen(AContext, FStyle.AxesColor, FStyle.AxesThickness, psSolid);
 
-  if (AContext.VisibleWorldRect.Left <= 0) and (AContext.VisibleWorldRect.Right >= 0) then
+  if (AContext.VisibleWorldRect.Left <= 0) and
+    (AContext.VisibleWorldRect.Right >= 0) then
   begin
     SX := WorldToScreen(0, 0, AContext.Zoom, AContext.OffsetX, AContext.OffsetY).X;
     MoveToEx(AContext, SX, 0);
     LineToEx(AContext, SX, AContext.ClientHeight);
   end;
 
-  if (AContext.VisibleWorldRect.Top <= 0) and (AContext.VisibleWorldRect.Bottom >= 0) then
+  if (AContext.VisibleWorldRect.Top <= 0) and
+    (AContext.VisibleWorldRect.Bottom >= 0) then
   begin
     SY := WorldToScreen(0, 0, AContext.Zoom, AContext.OffsetX, AContext.OffsetY).Y;
     MoveToEx(AContext, 0, SY);
@@ -986,7 +1042,8 @@ var
     begin
       SetBrush(AContext, clNone, bsClear);
       SetPen(AContext,
-        IfThen(AContext.HoveredPinCompatible, FStyle.PinCompatibleColor, FStyle.PinIncompatibleColor),
+        IfThen(AContext.HoveredPinCompatible, FStyle.PinCompatibleColor,
+        FStyle.PinIncompatibleColor),
         Max(2, FStyle.PinBorderWidth + 2), psSolid);
 
       EllipseEx(AContext,
@@ -997,13 +1054,13 @@ var
     end;
 
     SetBrush(AContext, clNone, bsClear);
-    SetFont(AContext, clBlack, Max(6, Round(10 * AContext.Zoom)));
+    SetFont(AContext, FStyle.PinTextColor, Max(6, Round(10 * AContext.Zoom)));
 
     if AIsInput then
-      TextOutEx(AContext, PX + PinRadiusScaled + 6,
+      TextOutEx(AContext, PX + PinRadiusScaled + ZI(6, AContext.Zoom),
         PY - TextHeightEx(AContext, APin.Name) div 2, APin.Name)
     else
-      TextOutEx(AContext, PX - TextWidthEx(AContext, APin.Name) - PinRadiusScaled - 6,
+      TextOutEx(AContext, PX - TextWidthEx(AContext, APin.Name) - PinRadiusScaled - ZI(6, AContext.Zoom),
         PY - TextHeightEx(AContext, APin.Name) div 2, APin.Name);
   end;
 
@@ -1134,24 +1191,28 @@ begin
     if ANode.Selected then
     begin
       SetBrush(AContext, clNone, bsClear);
-      SetPen(AContext, FStyle.NodeSelectedBorderColor, Max(2, Round(3 * AContext.Zoom)), psSolid);
+      SetPen(AContext, FStyle.NodeSelectedBorderColor,
+        Max(2, Round(3 * AContext.Zoom)), psSolid);
       EllipseEx(AContext, R.Left - 5, R.Top - 5, R.Right + 5, R.Bottom + 5);
     end
     else if ANode.Highlighted then
     begin
       SetBrush(AContext, clNone, bsClear);
-      SetPen(AContext, FStyle.NodeHighlightBorderColor, Max(2, Round(3 * AContext.Zoom)), psSolid);
+      SetPen(AContext, FStyle.NodeHighlightBorderColor,
+        Max(2, Round(3 * AContext.Zoom)), psSolid);
       EllipseEx(AContext, R.Left - 4, R.Top - 4, R.Right + 4, R.Bottom + 4);
     end
     else if ANode.Hovered then
     begin
       SetBrush(AContext, clNone, bsClear);
-      SetPen(AContext, FStyle.NodeHoverBorderColor, Max(1, Round(2 * AContext.Zoom)), psSolid);
+      SetPen(AContext, FStyle.NodeHoverBorderColor,
+        Max(1, Round(2 * AContext.Zoom)), psSolid);
       EllipseEx(AContext, R.Left - 3, R.Top - 3, R.Right + 3, R.Bottom + 3);
     end;
 
     SetBrush(AContext, FStyle.RerouteOuterColor, bsSolid);
-    SetPen(AContext, FStyle.RerouteBorderColor, Max(1, Round(2 * AContext.Zoom)), psSolid);
+    SetPen(AContext, FStyle.RerouteBorderColor,
+      Max(1, Round(2 * AContext.Zoom)), psSolid);
     EllipseEx(AContext, R.Left, R.Top, R.Right, R.Bottom);
 
     SetBrush(AContext, FStyle.RerouteInnerColor, bsSolid);
@@ -1273,7 +1334,8 @@ begin
   if ASelected then
   begin
     SetBrush(AContext, clNone, bsClear);
-    SetPen(AContext, FStyle.PinSelectedColor, Max(2, FStyle.PinBorderWidth + 1), psSolid);
+    SetPen(AContext, FStyle.PinSelectedColor,
+      Max(2, FStyle.PinBorderWidth + 1), psSolid);
     EllipseEx(AContext,
       Center.X - Radius - 3, Center.Y - Radius - 3,
       Center.X + Radius + 3, Center.Y + Radius + 3);
@@ -1316,12 +1378,10 @@ begin
   for i := 0 to ASteps do
   begin
     t := i / ASteps;
-    pts[i] := Point(
-      Round(Power(1 - t, 3) * P0.X + 3 * Power(1 - t, 2) * t * P1.X +
-            3 * (1 - t) * t * t * P2.X + Power(t, 3) * P3.X),
+    pts[i] := Point(Round(Power(1 - t, 3) * P0.X + 3 * Power(1 - t, 2) *
+      t * P1.X + 3 * (1 - t) * t * t * P2.X + Power(t, 3) * P3.X),
       Round(Power(1 - t, 3) * P0.Y + 3 * Power(1 - t, 2) * t * P1.Y +
-            3 * (1 - t) * t * t * P2.Y + Power(t, 3) * P3.Y)
-    );
+      3 * (1 - t) * t * t * P2.Y + Power(t, 3) * P3.Y));
   end;
 
   if AContext.HasGDI then
@@ -1377,7 +1437,8 @@ begin
   end;
 end;
 
-procedure TAbstractNodeEditorRenderer.MoveToEx(const AContext: TRenderContext; X, Y: integer);
+procedure TAbstractNodeEditorRenderer.MoveToEx(const AContext: TRenderContext;
+  X, Y: integer);
 begin
   if AContext.HasGDI then
     AContext.GDICanvas.MoveTo(X, Y)
@@ -1385,7 +1446,8 @@ begin
     AContext.GLCanvas.MoveTo(X, Y);
 end;
 
-procedure TAbstractNodeEditorRenderer.LineToEx(const AContext: TRenderContext; X, Y: integer);
+procedure TAbstractNodeEditorRenderer.LineToEx(const AContext: TRenderContext;
+  X, Y: integer);
 begin
   if AContext.HasGDI then
     AContext.GDICanvas.LineTo(X, Y)
@@ -1477,8 +1539,8 @@ begin
   Result := WorldToScreen(P.X, P.Y, AContext.Zoom, AContext.OffsetX, AContext.OffsetY);
 end;
 
-function TAbstractNodeEditorRenderer.WorldToScreen(WX, WY: single; AZoom,
-  AOffsetX, AOffsetY: double): TPoint;
+function TAbstractNodeEditorRenderer.WorldToScreen(WX, WY: single;
+  AZoom, AOffsetX, AOffsetY: double): TPoint;
 begin
   Result.X := Round(WX * AZoom + AOffsetX);
   Result.Y := Round(WY * AZoom + AOffsetY);
@@ -1572,8 +1634,8 @@ begin
       Result := TGDIRenderer.Create;
     rbOpenGL2D:
       Result := TOpenGLNodeEditorRenderer.Create;
-  else
-    Result := TGDIRenderer.Create;
+    else
+      Result := TGDIRenderer.Create;
   end;
 end;
 
