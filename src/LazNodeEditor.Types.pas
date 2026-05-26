@@ -19,7 +19,6 @@
   OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
   SOFTWARE.
 }
-
 unit LazNodeEditor.Types;
 
 {$mode objfpc}{$H+}
@@ -65,6 +64,25 @@ type
   TGraphLinkEvent = procedure(Sender: TObject; ALink: TObject) of object;
   TGraphChangedEvent = procedure(Sender: TObject) of object;
   TEditorZoomChangedEvent = procedure(Sender: TObject) of object;
+
+  TNodeRenderState = record
+    Zoom: double;
+    OffsetX: double;
+    OffsetY: double;
+    PinRadius: integer;
+    ResizeHandleSize: integer;
+
+    HoveredNode: TObject;
+    HoveredPin: TObject;
+    HoveredLink: TObject;
+
+    SelectedLink: TObject;
+    PinSelection: TObject;
+
+    TempFromPin: TObject;
+    TempMousePos: TPoint;
+    HoveredPinCompatible: boolean;
+  end;
 
   { TNodePinType }
   TNodePinType = class
@@ -112,9 +130,7 @@ type
     Kind: TPinKind;
     Direction: TPinDirection;
 
-    // Legacy
     DataType: string;
-
     PinType: TNodePinType;
 
     LocalY: integer;
@@ -139,11 +155,19 @@ type
 
   { TNodeLink }
   TNodeLink = class
+  private
+    function GetOwnerNodeOf(APin: TNodePin): TObject;
   public
     Id: string;
     FromPin: TNodePin;
     ToPin: TNodePin;
+
     constructor Create(AFrom, ATo: TNodePin);
+
+    function GetBezierWorldPoints(out P0, P1, P2, P3: TPointF): boolean;
+    function HitTest(const WorldPos: TPointF; ToleranceWorld: single = 8): boolean;
+    procedure Paint(Canvas: TCanvas; const AState: TNodeRenderState;
+      ASelected, AHovered: boolean);
   end;
 
   { TGraphValidationIssue }
@@ -151,7 +175,7 @@ type
   public
     Kind: TGraphValidationIssueKind;
     MessageText: string;
-    Node: TObject; // TCustomNode
+    Node: TObject;
     Link: TNodeLink;
   end;
 
@@ -172,20 +196,21 @@ function RectIntersects(const A, B: TRect): boolean;
 function UnionRectSafe(const A, B: TRect): TRect;
 
 function CubicBezierPoint(const P0, P1, P2, P3: TPoint; t: double): TPointF;
+function CubicBezierPointF(const P0, P1, P2, P3: TPointF; T: single): TPointF;
 function DistancePointToSegment(const P, A, B: TPointF): double;
 function PointDistance(const A, B: TPoint): double;
 procedure DrawCubicBezier(C: TCanvas; P0, P1, P2, P3: TPoint; Steps: integer = 32);
 function PointInRectInclusive(const R: TRect; X, Y: integer): boolean;
-function Cross(const AX, AY, BX, BY, CX, CY: integer): Int64;
+function Cross(const AX, AY, BX, BY, CX, CY: integer): int64;
 function OnSegment(const AX, AY, BX, BY, PX, PY: integer): boolean;
-function SegmentsIntersect(
-  AX, AY, BX, BY, CX, CY, DX, DY: integer): boolean;
+function SegmentsIntersect(AX, AY, BX, BY, CX, CY, DX, DY: integer): boolean;
 function LineIntersectsRect(X1, Y1, X2, Y2: integer; const R: TRect): boolean;
+
 
 implementation
 
 uses
-  LCLIntf;
+  LCLIntf, LazNodeEditor.Nodes;
 
 function NewId: string;
 var
@@ -276,22 +301,17 @@ begin
       Include(Result, F);
 end;
 
-{ TNodePinType }
-
 constructor TNodePinType.Create(const ATypeId: string; const ACategory: string;
   AColor: TColor);
 begin
   inherited Create;
-
   TypeId := LowerCase(Trim(ATypeId));
   if TypeId = '' then
     TypeId := 'any';
-
   Category := ACategory;
   DisplayName := TypeId;
   Color := AColor;
   Flags := [];
-
   if SameText(TypeId, 'any') then
     Include(Flags, ptfAny);
 end;
@@ -304,25 +324,18 @@ end;
 function TNodePinType.IsCompatibleWith(AOther: TNodePinType): boolean;
 begin
   Result := False;
-
   if AOther = nil then
     Exit;
-
   if IsAny or AOther.IsAny then
     Exit(True);
-
   if SameText(TypeId, AOther.TypeId) then
     Exit(True);
-
   if SameText(TypeId, 'integer') and SameText(AOther.TypeId, 'float') then
     Exit(True);
-
   if SameText(TypeId, 'float') and SameText(AOther.TypeId, 'integer') then
     Exit(True);
-
   if (ptfNullable in Flags) and SameText(TypeId, AOther.TypeId) then
     Exit(True);
-
   if (ptfNullable in AOther.Flags) and SameText(TypeId, AOther.TypeId) then
     Exit(True);
 end;
@@ -336,9 +349,7 @@ end;
 
 procedure TNodePinType.SaveToJSON(AObj: TJSONObject);
 begin
-  if AObj = nil then
-    Exit;
-
+  if AObj = nil then Exit;
   AObj.Add('typeId', TypeId);
   AObj.Add('category', Category);
   AObj.Add('displayName', DisplayName);
@@ -348,25 +359,19 @@ end;
 
 procedure TNodePinType.LoadFromJSON(AObj: TJSONObject);
 begin
-  if AObj = nil then
-    Exit;
-
+  if AObj = nil then Exit;
   TypeId := AObj.Get('typeId', TypeId);
   Category := AObj.Get('category', Category);
   DisplayName := AObj.Get('displayName', DisplayName);
   Color := TColor(AObj.Get('color', integer(Color)));
   Flags := IntToTypeFlags(AObj.Get('flags', TypeFlagsToInt(Flags)));
-
   if TypeId = '' then
     TypeId := 'any';
 end;
 
-{ TNodeValue }
-
 constructor TNodeValue.Create(const AName: string; AKind: TNodeValueKind);
 begin
   inherited Create;
-
   Name := AName;
   Kind := AKind;
   FloatValue := 0;
@@ -378,27 +383,15 @@ end;
 
 procedure TNodeValue.SaveToJSON(AObj: TJSONObject);
 begin
-  if AObj = nil then
-    Exit;
-
+  if AObj = nil then Exit;
   AObj.Add('name', Name);
   AObj.Add('kind', NodeValueKindToStr(Kind));
-
   case Kind of
-    nvkFloat:
-      AObj.Add('value', FloatValue);
-
-    nvkInteger:
-      AObj.Add('value', IntegerValue);
-
-    nvkString:
-      AObj.Add('value', StringValue);
-
-    nvkBoolean:
-      AObj.Add('value', BooleanValue);
-
-    nvkJSON:
-      AObj.Add('value', JSONValue);
+    nvkFloat: AObj.Add('value', FloatValue);
+    nvkInteger: AObj.Add('value', IntegerValue);
+    nvkString: AObj.Add('value', StringValue);
+    nvkBoolean: AObj.Add('value', BooleanValue);
+    nvkJSON: AObj.Add('value', JSONValue);
     else
       AObj.Add('value', '');
   end;
@@ -406,50 +399,31 @@ end;
 
 procedure TNodeValue.LoadFromJSON(AObj: TJSONObject);
 begin
-  if AObj = nil then
-    Exit;
-
+  if AObj = nil then Exit;
   Name := AObj.Get('name', Name);
   Kind := StrToNodeValueKind(AObj.Get('kind', 'null'));
-
   case Kind of
-    nvkFloat:
-      FloatValue := AObj.Get('value', FloatValue);
-
-    nvkInteger:
-      IntegerValue := AObj.Get('value', IntegerValue);
-
-    nvkString:
-      StringValue := AObj.Get('value', StringValue);
-
-    nvkBoolean:
-      BooleanValue := AObj.Get('value', BooleanValue);
-
-    nvkJSON:
-      JSONValue := AObj.Get('value', JSONValue);
+    nvkFloat: FloatValue := AObj.Get('value', FloatValue);
+    nvkInteger: IntegerValue := AObj.Get('value', IntegerValue);
+    nvkString: StringValue := AObj.Get('value', StringValue);
+    nvkBoolean: BooleanValue := AObj.Get('value', BooleanValue);
+    nvkJSON: JSONValue := AObj.Get('value', JSONValue);
   end;
 end;
-
-{ TNodePin }
 
 constructor TNodePin.Create(AName: string; ADir: TPinDirection;
   AKind: TPinKind; ALocalY: integer);
 begin
   inherited Create;
-
   Id := NewId;
   Name := AName;
   DisplayName := AName;
-
   Direction := ADir;
   Kind := AKind;
   LocalY := ALocalY;
-
   DataType := '';
   PinType := TNodePinType.Create('any', '', clLime);
-
   OwnerNode := nil;
-
   IsRequired := False;
   DefaultValue := '';
   Tooltip := '';
@@ -457,6 +431,7 @@ begin
   Advanced := False;
   AllowMultipleConnections := ADir = pdOutput;
   SortIndex := 0;
+  Connected := False;
 end;
 
 destructor TNodePin.Destroy;
@@ -476,7 +451,6 @@ end;
 procedure TNodePin.SetTypeId(const ATypeId: string);
 begin
   DataType := ATypeId;
-
   if PinType = nil then
     PinType := TNodePinType.Create(ATypeId)
   else
@@ -484,16 +458,12 @@ begin
     PinType.TypeId := LowerCase(Trim(ATypeId));
     if PinType.TypeId = '' then
       PinType.TypeId := 'any';
-
     PinType.DisplayName := PinType.TypeId;
     PinType.Flags := [];
-
     if SameText(PinType.TypeId, 'any') then
       Include(PinType.Flags, ptfAny);
   end;
 end;
-
-{ TNodeLink }
 
 constructor TNodeLink.Create(AFrom, ATo: TNodePin);
 begin
@@ -503,7 +473,117 @@ begin
   ToPin := ATo;
 end;
 
-{ Geometry helpers }
+function TNodeLink.GetOwnerNodeOf(APin: TNodePin): TObject;
+begin
+  if APin <> nil then
+    Result := APin.OwnerNode
+  else
+    Result := nil;
+end;
+
+function TNodeLink.GetBezierWorldPoints(out P0, P1, P2, P3: TPointF): boolean;
+var
+  N0, N1: TCustomNode;
+  DX, DY, Dist, D: single;
+begin
+  Result := False;
+  P0 := PointF(0, 0);
+  P1 := PointF(0, 0);
+  P2 := PointF(0, 0);
+  P3 := PointF(0, 0);
+
+  if (FromPin = nil) or (ToPin = nil) then
+    Exit;
+
+  if not (GetOwnerNodeOf(FromPin) is TCustomNode) then
+    Exit;
+  if not (GetOwnerNodeOf(ToPin) is TCustomNode) then
+    Exit;
+
+  N0 := TCustomNode(GetOwnerNodeOf(FromPin));
+  N1 := TCustomNode(GetOwnerNodeOf(ToPin));
+
+  P0 := N0.GetPinWorldPosition(FromPin);
+  P3 := N1.GetPinWorldPosition(ToPin);
+
+  DX := P3.X - P0.X;
+  DY := P3.Y - P0.Y;
+  Dist := Hypot(DX, DY);
+  D := EnsureRange(Dist * 0.35, 30, 150);
+
+  P1 := P0;
+  P2 := P3;
+  P1.X := P1.X + D;
+  P2.X := P2.X - D;
+
+  Result := True;
+end;
+
+function TNodeLink.HitTest(const WorldPos: TPointF; ToleranceWorld: single): boolean;
+var
+  P0, P1, P2, P3, Prev, Cur: TPointF;
+  k: integer;
+begin
+  Result := False;
+  if not GetBezierWorldPoints(P0, P1, P2, P3) then
+    Exit;
+
+  Prev := P0;
+  for k := 1 to 20 do
+  begin
+    Cur := CubicBezierPointF(P0, P1, P2, P3, k / 20);
+    if DistancePointToSegment(WorldPos, Prev, Cur) <= ToleranceWorld then
+      Exit(True);
+    Prev := Cur;
+  end;
+end;
+
+procedure TNodeLink.Paint(Canvas: TCanvas; const AState: TNodeRenderState;
+  ASelected, AHovered: boolean);
+var
+  P0W, P1W, P2W, P3W: TPointF;
+  P0, P1, P2, P3: TPoint;
+  C: TColor;
+  W: integer;
+begin
+  if (Canvas = nil) or not GetBezierWorldPoints(P0W, P1W, P2W, P3W) then
+    Exit;
+
+  P0 := Point(Round(P0W.X * AState.Zoom + AState.OffsetX),
+    Round(P0W.Y * AState.Zoom + AState.OffsetY));
+  P1 := Point(Round(P1W.X * AState.Zoom + AState.OffsetX),
+    Round(P1W.Y * AState.Zoom + AState.OffsetY));
+  P2 := Point(Round(P2W.X * AState.Zoom + AState.OffsetX),
+    Round(P2W.Y * AState.Zoom + AState.OffsetY));
+  P3 := Point(Round(P3W.X * AState.Zoom + AState.OffsetX),
+    Round(P3W.Y * AState.Zoom + AState.OffsetY));
+
+  if ASelected then
+  begin
+    C := clRed;
+    W := 5;
+  end
+  else if AHovered then
+  begin
+    C := clAqua;
+    W := 5;
+  end
+  else
+  begin
+    C := clYellow;
+    W := 4;
+  end;
+
+  Canvas.Brush.Style := bsClear;
+  Canvas.Pen.Style := psSolid;
+  Canvas.Pen.Color := C;
+  Canvas.Pen.Width := Max(1, Round(W * AState.Zoom));
+  DrawCubicBezier(Canvas, P0, P1, P2, P3, 24);
+
+  Canvas.Pen.Width := 1;
+  Canvas.Pen.Style := psSolid;
+  Canvas.Brush.Style := bsSolid;
+end;
 
 function NormalizeRect(const R: TRect): TRect;
 begin
@@ -536,9 +616,21 @@ begin
   t3 := t2 * t;
   it2 := it * it;
   it3 := it2 * it;
-
   Result.X := it3 * P0.X + 3 * it2 * t * P1.X + 3 * it * t2 * P2.X + t3 * P3.X;
   Result.Y := it3 * P0.Y + 3 * it2 * t * P1.Y + 3 * it * t2 * P2.Y + t3 * P3.Y;
+end;
+
+function CubicBezierPointF(const P0, P1, P2, P3: TPointF; T: single): TPointF;
+var
+  U, UU, UUU, TT, TTT: single;
+begin
+  U := 1 - T;
+  UU := U * U;
+  UUU := UU * U;
+  TT := T * T;
+  TTT := TT * T;
+  Result.X := UUU * P0.X + 3 * UU * T * P1.X + 3 * U * TT * P2.X + TTT * P3.X;
+  Result.Y := UUU * P0.Y + 3 * UU * T * P1.Y + 3 * U * TT * P2.Y + TTT * P3.Y;
 end;
 
 function DistancePointToSegment(const P, A, B: TPointF): double;
@@ -570,7 +662,7 @@ begin
   Result := Sqrt(Sqr(A.X - B.X) + Sqr(A.Y - B.Y));
 end;
 
-procedure DrawCubicBezier(C: TCanvas; P0, P1, P2, P3: TPoint; Steps: integer = 32);
+procedure DrawCubicBezier(C: TCanvas; P0, P1, P2, P3: TPoint; Steps: integer);
 var
   i: integer;
   t, it, t2, it2, t3, it3, x, y: double;
@@ -597,22 +689,21 @@ begin
   Result := (X >= R.Left) and (X <= R.Right) and (Y >= R.Top) and (Y <= R.Bottom);
 end;
 
-function Cross(const AX, AY, BX, BY, CX, CY: integer): Int64;
+function Cross(const AX, AY, BX, BY, CX, CY: integer): int64;
 begin
-  Result := Int64(BX - AX) * Int64(CY - AY) - Int64(BY - AY) * Int64(CX - AX);
+  Result := int64(BX - AX) * int64(CY - AY) - int64(BY - AY) * int64(CX - AX);
 end;
 
 function OnSegment(const AX, AY, BX, BY, PX, PY: integer): boolean;
 begin
   Result :=
-    (Min(AX, BX) <= PX) and (PX <= Max(AX, BX)) and
-    (Min(AY, BY) <= PY) and (PY <= Max(AY, BY));
+    (Min(AX, BX) <= PX) and (PX <= Max(AX, BX)) and (Min(AY, BY) <= PY) and
+    (PY <= Max(AY, BY));
 end;
 
-function SegmentsIntersect(
-  AX, AY, BX, BY, CX, CY, DX, DY: integer): boolean;
+function SegmentsIntersect(AX, AY, BX, BY, CX, CY, DX, DY: integer): boolean;
 var
-  C1, C2, C3, C4: Int64;
+  C1, C2, C3, C4: int64;
 begin
   C1 := Cross(AX, AY, BX, BY, CX, CY);
   C2 := Cross(AX, AY, BX, BY, DX, DY);
@@ -620,7 +711,7 @@ begin
   C4 := Cross(CX, CY, DX, DY, BX, BY);
 
   if (((C1 > 0) and (C2 < 0)) or ((C1 < 0) and (C2 > 0))) and
-     (((C3 > 0) and (C4 < 0)) or ((C3 < 0) and (C4 > 0))) then
+    (((C3 > 0) and (C4 < 0)) or ((C3 < 0) and (C4 > 0))) then
     Exit(True);
 
   if (C1 = 0) and OnSegment(AX, AY, BX, BY, CX, CY) then Exit(True);
@@ -637,10 +728,10 @@ begin
     Exit(True);
 
   Result :=
-    SegmentsIntersect(X1, Y1, X2, Y2, R.Left,  R.Top,    R.Right, R.Top) or
-    SegmentsIntersect(X1, Y1, X2, Y2, R.Right, R.Top,    R.Right, R.Bottom) or
-    SegmentsIntersect(X1, Y1, X2, Y2, R.Right, R.Bottom, R.Left,  R.Bottom) or
-    SegmentsIntersect(X1, Y1, X2, Y2, R.Left,  R.Bottom, R.Left,  R.Top);
+    SegmentsIntersect(X1, Y1, X2, Y2, R.Left, R.Top, R.Right, R.Top) or
+    SegmentsIntersect(X1, Y1, X2, Y2, R.Right, R.Top, R.Right, R.Bottom) or
+    SegmentsIntersect(X1, Y1, X2, Y2, R.Right, R.Bottom, R.Left, R.Bottom) or
+    SegmentsIntersect(X1, Y1, X2, Y2, R.Left, R.Bottom, R.Left, R.Top);
 end;
 
 end.

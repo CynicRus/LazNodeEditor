@@ -32,7 +32,6 @@ uses
   LazNodeEditor.Graph,
   LazNodeEditor.Controller,
   LazNodeEditor.Viewport,
-  LazNodeEditor.HitTest,
   LazNodeEditor.InteractionIntf;
 
 type
@@ -253,9 +252,9 @@ type
 implementation
 
 
-  { ======================================================================== }
-  { Geometry helper                                                           }
-  { ======================================================================== }
+{ ======================================================================== }
+{ Geometry helper                                                           }
+{ ======================================================================== }
 
 function NormalizeRectF(const R: TRectF): TRectF; inline;
 begin
@@ -348,13 +347,13 @@ end;
 
 procedure TIdleState.MouseDown(Button: TMouseButton; Shift: TShiftState; X, Y: integer);
 var
-  Hit: THitTestResult;
   Node: TCustomNode;
   Pin: TNodePin;
   Link: TNodeLink;
+  WorldPos: TPointF;
   i: integer;
 begin
-  Hit := Editor.HitTest(X, Y);
+  WorldPos := Editor.ScreenToWorld(X, Y);
 
   if Button = mbLeft then
   begin
@@ -364,141 +363,144 @@ begin
     FMachine.LastMouseX := X;
     FMachine.LastMouseY := Y;
 
-    case Hit.HitType of
-
-      htResizeHandle:
+    Node := Editor.HitTestResizeHandleAt(X, Y);
+    if Node <> nil then
+    begin
+      if not Controller.Selection.ContainsNode(Node) then
       begin
-        Node := Hit.ResizeNode;
-        if not Controller.Selection.ContainsNode(Node) then
-        begin
-          Editor.SelectNodeInternal(Node, False);
-          Editor.NotifySelectionChanged;
-        end;
-        FMachine.ResizeNode := Node;
-        FMachine.ResizeStartMouseX := X;
-        FMachine.ResizeStartMouseY := Y;
-        FMachine.ResizeStartWidth := Node.Width;
-        FMachine.ResizeStartHeight := Node.Height;
-        FMachine.ResizeOldWidth := Node.Width;
-        FMachine.ResizeOldHeight := Node.Height;
-        FMachine.ChangeState(TResizeState.Create(FMachine));
-        Editor.Invalidate;
-        System.Exit;
-      end;
-
-      htPin:
-      begin
-        Pin := Hit.Pin;
-        Node := Hit.Node;
-
-        if Editor.GetOnPinClickAssigned then Editor.DoPinClick(Pin);
-
-        if ssCtrl in Shift then
-        begin
-          Editor.TogglePinSelection(Pin);
-          Editor.NotifySelectionChanged;
-          Editor.Invalidate;
-          Exit;
-        end
-        else if ssShift in Shift then
-        begin
-          Editor.SelectPinInternal(Pin, True);
-          Editor.NotifySelectionChanged;
-          Editor.Invalidate;
-          Exit;
-        end;
-
-        if not Editor.CanPinAcceptMoreConnections(Pin) then
-        begin
-          Editor.ClearPinSelection;
-          Editor.SelectPinInternal(Pin, False);
-          Editor.NotifySelectionChanged;
-          Editor.Invalidate;
-          Exit;
-        end;
-
-        Editor.ClearPinSelection;
-        FMachine.TempFromPin := Pin;
-        FMachine.TempMousePos := Point(X, Y);
-        FMachine.TempStartMousePos := Point(X, Y);
-        FMachine.DraggingLink := False;
-        FMachine.ChangeState(TLinkDrawState.Create(FMachine));
-        Editor.Invalidate;
-        System.Exit;
-      end;
-
-      htLink:
-      begin
-        Link := Hit.Link;
-        if Editor.GetOnLinkClickAssigned then Editor.DoLinkClick(Link);
-
-        if (ssCtrl in Shift) or (ssShift in Shift) then
-          Editor.ToggleLinkSelection(Link)
-        else
-        begin
-          Editor.ClearSelectionInternal;
-          Controller.Selection.SelectLink(Link, False);
-        end;
-
-        FMachine.ReconnectLink := Link;
-        FMachine.ReconnectMovingFromSide := Editor.IsMouseNearLinkStart(Link, X, Y);
-        if FMachine.ReconnectMovingFromSide then
-        begin
-          FMachine.TempFromPin := Link.FromPin;
-          FMachine.ReconnectFixedPin := Link.ToPin;
-        end
-        else
-        begin
-          FMachine.TempFromPin := Link.ToPin;
-          FMachine.ReconnectFixedPin := Link.FromPin;
-        end;
-        FMachine.TempMousePos := Point(X, Y);
-        FMachine.TempStartMousePos := Point(X, Y);
-        FMachine.DraggingLink := False;
+        Editor.SelectNodeInternal(Node, False);
         Editor.NotifySelectionChanged;
-        FMachine.ChangeState(TReconnectLinkState.Create(FMachine));
+      end;
+      FMachine.ResizeNode := Node;
+      FMachine.ResizeStartMouseX := X;
+      FMachine.ResizeStartMouseY := Y;
+      FMachine.ResizeStartWidth := Node.Width;
+      FMachine.ResizeStartHeight := Node.Height;
+      FMachine.ResizeOldWidth := Node.Width;
+      FMachine.ResizeOldHeight := Node.Height;
+      FMachine.ChangeState(TResizeState.Create(FMachine));
+      Editor.Invalidate;
+      System.Exit;
+    end;
+
+    Pin := Editor.HitTestPinAt(X, Y, Node);
+    if Pin <> nil then
+    begin
+      if Editor.GetOnPinClickAssigned then
+        Editor.DoPinClick(Pin);
+
+      if ssCtrl in Shift then
+      begin
+        Editor.TogglePinSelection(Pin);
+        Editor.NotifySelectionChanged;
+        Editor.Invalidate;
+        System.Exit;
+      end
+      else if ssShift in Shift then
+      begin
+        Editor.SelectPinInternal(Pin, True);
+        Editor.NotifySelectionChanged;
         Editor.Invalidate;
         System.Exit;
       end;
 
-      htNode:
+      if not Editor.CanPinAcceptMoreConnections(Pin) then
       begin
-        Node := Hit.Node;
-        if (ssCtrl in Shift) or (ssShift in Shift) then
-          Editor.ToggleNodeSelection(Node)
-        else if not Controller.Selection.ContainsNode(Node) then
-          Editor.SelectNodeInternal(Node, False);
+        Editor.ClearPinSelection;
+        Editor.SelectPinInternal(Pin, False);
+        Editor.NotifySelectionChanged;
+        Editor.Invalidate;
+        System.Exit;
+      end;
 
-        FMachine.ShowDragCoordinates := True;
+      Editor.ClearPinSelection;
+      FMachine.TempFromPin := Pin;
+      FMachine.TempMousePos := Point(X, Y);
+      FMachine.TempStartMousePos := Point(X, Y);
+      FMachine.DraggingLink := False;
+      FMachine.ChangeState(TLinkDrawState.Create(FMachine));
+      Editor.Invalidate;
+      System.Exit;
+    end;
+
+    Link := Editor.HitTestLinkAt(X, Y);
+    if Link <> nil then
+    begin
+      if Editor.GetOnLinkClickAssigned then
+        Editor.DoLinkClick(Link);
+
+      if (ssCtrl in Shift) or (ssShift in Shift) then
+        Editor.ToggleLinkSelection(Link)
+      else
+      begin
+        Editor.ClearSelectionInternal;
+        Controller.Selection.SelectLink(Link, False);
+      end;
+
+      FMachine.ReconnectLink := Link;
+      FMachine.ReconnectMovingFromSide := Editor.IsMouseNearLinkStart(Link, X, Y);
+      if FMachine.ReconnectMovingFromSide then
+      begin
+        FMachine.TempFromPin := Link.FromPin;
+        FMachine.ReconnectFixedPin := Link.ToPin;
+      end
+      else
+      begin
+        FMachine.TempFromPin := Link.ToPin;
+        FMachine.ReconnectFixedPin := Link.FromPin;
+      end;
+      FMachine.TempMousePos := Point(X, Y);
+      FMachine.TempStartMousePos := Point(X, Y);
+      FMachine.DraggingLink := False;
+      Editor.NotifySelectionChanged;
+      FMachine.ChangeState(TReconnectLinkState.Create(FMachine));
+      Editor.Invalidate;
+      System.Exit;
+    end;
+
+    Node := Editor.HitTestNodeAt(X, Y);
+    if Node <> nil then
+    begin
+      if (ssCtrl in Shift) or (ssShift in Shift) then
+        Editor.ToggleNodeSelection(Node)
+      else if not Controller.Selection.ContainsNode(Node) then
+        Editor.SelectNodeInternal(Node, False);
+
+      FMachine.ShowDragCoordinates := True;
+
+      if Controller.Selection.NodeCount > 0 then
         FMachine.DragStartWorldPos :=
           PointF(Controller.Selection.GetNode(0).X,
-          Controller.Selection.GetNode(0).Y);
+          Controller.Selection.GetNode(0).Y)
+      else
+        FMachine.DragStartWorldPos := PointF(Node.X, Node.Y);
 
-        FMachine.DragCommandNodes.Clear;
-        SetLength(FMachine.FDragOldPositions, Controller.Selection.NodeCount);
-        for i := 0 to Controller.Selection.NodeCount - 1 do
-        begin
-          FMachine.DragCommandNodes.Add(Controller.Selection.GetNode(i));
-          FMachine.FDragOldPositions[i] :=
-            PointF(Controller.Selection.GetNode(i).X,
-            Controller.Selection.GetNode(i).Y);
-        end;
-
-        Editor.NotifySelectionChanged;
-        FMachine.ChangeState(TNodeDragState.Create(FMachine));
-        Editor.RequestRepaint(true);
-        System.Exit;
+      FMachine.DragCommandNodes.Clear;
+      SetLength(FMachine.FDragOldPositions, Controller.Selection.NodeCount);
+      for i := 0 to Controller.Selection.NodeCount - 1 do
+      begin
+        FMachine.DragCommandNodes.Add(Controller.Selection.GetNode(i));
+        FMachine.FDragOldPositions[i] :=
+          PointF(Controller.Selection.GetNode(i).X,
+          Controller.Selection.GetNode(i).Y);
       end;
-    end; { case }
 
-    if not (ssShift in Shift) then Editor.ClearSelectionInternal;
+      Editor.NotifySelectionChanged;
+      FMachine.ChangeState(TNodeDragState.Create(FMachine));
+      Editor.RequestRepaint(True);
+      System.Exit;
+    end;
+
+    if not (ssShift in Shift) then
+      Editor.ClearSelectionInternal;
+
     FMachine.BoxStart := Point(X, Y);
     FMachine.BoxCurrent := Point(X, Y);
-    FMachine.BoxStartWorld := Hit.WorldPos;
-    FMachine.BoxCurrentWorld := Hit.WorldPos;
+    FMachine.BoxStartWorld := WorldPos;
+    FMachine.BoxCurrentWorld := WorldPos;
     Editor.NotifySelectionChanged;
     FMachine.ChangeState(TBoxSelectState.Create(FMachine));
-    Editor.RequestRepaint(true);
+    Editor.RequestRepaint(True);
   end
   else if Button = mbRight then
   begin
@@ -508,17 +510,14 @@ begin
     FMachine.StartMouseY := Y;
     FMachine.LastMouseX := X;
     FMachine.LastMouseY := Y;
-    Editor.SetContextWorldPos(Hit.WorldPos);
+    Editor.SetContextWorldPos(WorldPos);
     FMachine.ChangeState(TPanState.Create(FMachine));
   end;
 end;
 
 procedure TIdleState.MouseMove(Shift: TShiftState; X, Y: integer);
-var
-  Hit: THitTestResult;
 begin
-  Hit := Editor.HitTest(X, Y);
-  if Hit.HitType = htResizeHandle then
+  if Editor.HitTestResizeHandleAt(X, Y) <> nil then
     Editor.SetCursor(crSizeNWSE)
   else
     Editor.SetCursor(crDefault);
@@ -665,7 +664,6 @@ end;
 procedure TLinkDrawState.MouseUp(Button: TMouseButton; Shift: TShiftState;
   X, Y: integer);
 var
-  Hit: THitTestResult;
   TargetNode: TCustomNode;
   TargetPin: TNodePin;
   i: integer;
@@ -674,12 +672,11 @@ var
 begin
   if Button <> mbLeft then Exit;
 
-  Hit := Editor.HitTest(X, Y);
-  DropWorld := Hit.WorldPos;
+  DropWorld := Editor.ScreenToWorld(X, Y);
+  TargetPin := Editor.HitTestPinAt(X, Y, TargetNode);
 
-  if Hit.HitType = htPin then
+  if TargetPin <> nil then
   begin
-    TargetPin := Hit.Pin;
     if Editor.CanPinAcceptMoreConnections(FMachine.TempFromPin) and
       Editor.CanPinAcceptMoreConnections(TargetPin) and
       Graph.CanConnect(FMachine.TempFromPin, TargetPin) then
@@ -803,18 +800,16 @@ end;
 procedure TReconnectLinkState.MouseUp(Button: TMouseButton; Shift: TShiftState;
   X, Y: integer);
 var
-  Hit: THitTestResult;
+  TargetNode: TCustomNode;
   TargetPin: TNodePin;
   AllowConnect: boolean;
 begin
   if Button <> mbLeft then Exit;
 
-  Hit := Editor.HitTest(X, Y);
+  TargetPin := Editor.HitTestPinAt(X, Y, TargetNode);
 
-  if (Hit.HitType = htPin) and (Hit.Pin <> nil) and
-    (FMachine.ReconnectFixedPin <> nil) then
+  if (TargetPin <> nil) and (FMachine.ReconnectFixedPin <> nil) then
   begin
-    TargetPin := Hit.Pin;
     if FMachine.ReconnectMovingFromSide then
     begin
       if Editor.CanPinAcceptMoreConnections(TargetPin) and
@@ -980,16 +975,13 @@ begin
 end;
 
 procedure TPanState.MouseUp(Button: TMouseButton; Shift: TShiftState; X, Y: integer);
-var
-  Hit: THitTestResult;
 begin
   if Button <> mbRight then Exit;
 
   FMachine.RightButtonDown := False;
   if not FMachine.RightMouseMoved then
   begin
-    Hit := Editor.HitTest(X, Y);
-    Editor.SetContextWorldPos(Hit.WorldPos);
+    Editor.SetContextWorldPos(Editor.ScreenToWorld(X, Y));
     Editor.SetMouseCapture(False);
     Editor.SetCursor(crDefault);
     Editor.PopupContextMenu(Mouse.CursorPos.X, Mouse.CursorPos.Y);
@@ -999,6 +991,7 @@ begin
     Editor.SetMouseCapture(False);
     Editor.SetCursor(crDefault);
   end;
+
   FMachine.RightMouseMoved := False;
   FMachine.ChangeState(TIdleState.Create(FMachine));
   Editor.Invalidate;

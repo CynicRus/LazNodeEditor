@@ -33,6 +33,11 @@ type
   TCustomNode = class;
   TCustomNodeClass = class of TCustomNode;
 
+  TPinSelectionAccess = class
+  public
+    class function Contains(APinSelection: TObject; APin: TNodePin): boolean; static;
+  end;
+
   { TCustomNode }
   TCustomNode = class
   private
@@ -42,6 +47,10 @@ type
   protected
     function GetDefaultHeaderColor: TColor; virtual;
     function GetDefaultBodyColor: TColor; virtual;
+    function GetHeaderHeight(Zoom: double): integer; virtual;
+    function GetPinHitRadiusWorld(Zoom: double): single; virtual;
+    function GetResizeHandleRectScreen(const AState: TNodeRenderState): TRect; virtual;
+
   public
     Id: string;
     NodeType: string;
@@ -89,12 +98,13 @@ type
     function GetPinScreenPosition(APin: TNodePin; Zoom: double;
       OffsetX, OffsetY: integer): TPoint;
     function GetPinWorldPosition(APin: TNodePin): TPointF;
-
     function GetPinScreenRect(APin: TNodePin; Zoom: double;
       OffsetX, OffsetY: integer; Radius: integer = 8): TRect;
 
-    function GetPinAt(LocalX, LocalY: integer): TNodePin;
-    function HitTest(WX, WY: single): boolean;
+    function HitTestNode(WX, WY: single): boolean; virtual;
+    function HitTestPin(WX, WY: single; Zoom: double): TNodePin; virtual;
+    function HitTestResizeHandle(WX, WY: single; const AState: TNodeRenderState): boolean; virtual;
+
     function GetScreenBounds(Zoom: double; OffsetX, OffsetY: double): TRect;
 
     procedure ClearValues;
@@ -103,13 +113,23 @@ type
     function ValueCount: integer;
     function GetValue(Index: integer): TNodeValue;
 
-    procedure Paint(Canvas: TCanvas; Zoom: double; OffsetX, OffsetY: integer); virtual;
+    procedure Paint(Canvas: TCanvas; const AState: TNodeRenderState); virtual;
+    procedure PaintBody(Canvas: TCanvas; const ARect: TRect;
+      const AState: TNodeRenderState); virtual;
+    procedure PaintPins(Canvas: TCanvas; const ARect: TRect;
+      const AState: TNodeRenderState); virtual;
+    procedure PaintPin(Canvas: TCanvas; APin: TNodePin; const ACenter: TPoint;
+      ARadius: integer; const AState: TNodeRenderState); virtual;
+    procedure PaintBodyOnly(Canvas: TCanvas; const AState: TNodeRenderState); virtual;
+    procedure PaintSinglePin(Canvas: TCanvas; APin: TNodePin; const ACenter: TPoint;
+      ARadius: integer; const AState: TNodeRenderState); virtual;
+    procedure PaintPinLabel(Canvas: TCanvas; APin: TNodePin; const ACenter: TPoint;
+      ARadius: integer; const AState: TNodeRenderState); virtual;
 
     procedure SaveToJSON(AObj: TJSONObject); virtual;
     procedure LoadFromJSON(AObj: TJSONObject); virtual;
   end;
 
-  { Default Nodes }
   TDefaultNode = class(TCustomNode)
   public
     constructor Create(ATitle: string; AX, AY: single; AWidth: integer = 180;
@@ -132,6 +152,8 @@ type
   end;
 
   TRerouteNode = class(TCustomNode)
+  protected
+    function GetPinHitRadiusWorld(Zoom: double): single; override;
   public
     constructor Create(ATitle: string; AX, AY: single; AWidth: integer = 28;
       AHeight: integer = 28); override;
@@ -188,7 +210,15 @@ type
 implementation
 
 uses
-  Generics.Collections;
+  LazNodeEditor.Selection;
+
+{ TPinSelectionAccess }
+
+class function TPinSelectionAccess.Contains(APinSelection: TObject; APin: TNodePin): boolean;
+begin
+  Result := (APinSelection is TPinSelectionModel) and
+            TPinSelectionModel(APinSelection).Contains(APin);
+end;
 
 { TCustomNode }
 
@@ -196,16 +226,13 @@ constructor TCustomNode.Create(ATitle: string; AX, AY: single;
   AWidth: integer; AHeight: integer);
 begin
   inherited Create;
-
   Id := NewId;
   NodeType := 'default';
   Title := ATitle;
-
   X := AX;
   Y := AY;
   Width := AWidth;
   Height := AHeight;
-
   HeaderColor := GetDefaultHeaderColor;
   BodyColor := GetDefaultBodyColor;
 
@@ -214,13 +241,13 @@ begin
   FValues := TList.Create;
 
   Selected := False;
-
   VisualKind := nvNormal;
   CommentText := '';
   Hovered := False;
   Highlighted := False;
   Collapsed := False;
   ZOrder := 0;
+  Connected := False;
 end;
 
 destructor TCustomNode.Destroy;
@@ -243,6 +270,26 @@ begin
   Result := clWhite;
 end;
 
+function TCustomNode.GetHeaderHeight(Zoom: double): integer;
+begin
+  Result := Max(20, Round(28 * Zoom));
+end;
+
+function TCustomNode.GetPinHitRadiusWorld(Zoom: double): single;
+begin
+  Result := 10 / Zoom;
+end;
+
+function TCustomNode.GetResizeHandleRectScreen(const AState: TNodeRenderState): TRect;
+var
+  R: TRect;
+  S: integer;
+begin
+  R := GetScreenBounds(AState.Zoom, AState.OffsetX, AState.OffsetY);
+  S := Max(10, Round(AState.ResizeHandleSize * AState.Zoom));
+  Result := Rect(R.Right - S, R.Bottom - S, R.Right + 1, R.Bottom + 1);
+end;
+
 procedure TCustomNode.SetupPins;
 begin
 end;
@@ -253,10 +300,8 @@ var
 begin
   for i := 0 to FInputs.Count - 1 do
     TObject(FInputs[i]).Free;
-
   for i := 0 to FOutputs.Count - 1 do
     TObject(FOutputs[i]).Free;
-
   FInputs.Clear;
   FOutputs.Clear;
 end;
@@ -273,7 +318,6 @@ begin
   Result.AllowMultipleConnections := False;
   Result.SortIndex := FInputs.Count;
   FInputs.Add(Result);
-
   AutoLayoutPins;
 end;
 
@@ -289,18 +333,13 @@ begin
   Result.AllowMultipleConnections := True;
   Result.SortIndex := FOutputs.Count;
   FOutputs.Add(Result);
-
   AutoLayoutPins;
 end;
 
 function TCustomNode.RemovePin(APin: TNodePin): boolean;
 begin
   Result := False;
-
-  if APin = nil then
-    Exit;
-
-  if APin.OwnerNode <> Self then
+  if (APin = nil) or (APin.OwnerNode <> Self) then
     Exit;
 
   if APin.Direction = pdInput then
@@ -333,28 +372,20 @@ var
 begin
   for i := 0 to FInputs.Count - 1 do
     TNodePin(FInputs[i]).SortIndex := i;
-
   for i := 0 to FOutputs.Count - 1 do
     TNodePin(FOutputs[i]).SortIndex := i;
 end;
 
 procedure TCustomNode.AutoLayoutPins;
 var
-  i: integer;
-  MaxCount: integer;
-  HeaderH: integer;
-  BottomPad: integer;
-  WorkH: integer;
-  StepY: integer;
+  i, HeaderH, BottomPad, WorkH: integer;
 begin
   if VisualKind = nvReroute then
   begin
     for i := 0 to FInputs.Count - 1 do
       TNodePin(FInputs[i]).LocalY := Height div 2;
-
     for i := 0 to FOutputs.Count - 1 do
       TNodePin(FOutputs[i]).LocalY := Height div 2;
-
     Exit;
   end;
 
@@ -363,18 +394,9 @@ begin
 
   HeaderH := 28;
   BottomPad := 18;
-
-  MaxCount := Max(FInputs.Count, FOutputs.Count);
-
-  if MaxCount <= 0 then
-    Exit;
-
   WorkH := Height - HeaderH - BottomPad;
-
-  if MaxCount = 1 then
-    StepY := 0
-  else
-    StepY := WorkH div MaxCount;
+  if WorkH <= 0 then
+    Exit;
 
   for i := 0 to FInputs.Count - 1 do
     TNodePin(FInputs[i]).LocalY := HeaderH + (i + 1) * WorkH div (FInputs.Count + 1);
@@ -386,37 +408,37 @@ end;
 procedure TCustomNode.AddInput(AName, ADataType: string; AKind: TPinKind;
   ALocalY: integer);
 var
-  p: TNodePin;
+  P: TNodePin;
 begin
-  p := TNodePin.Create(AName, pdInput, AKind, ALocalY);
-  p.OwnerNode := Self;
-  p.SetTypeId(ADataType);
-  p.AllowMultipleConnections := False;
-  p.SortIndex := FInputs.Count;
-  FInputs.Add(p);
+  P := TNodePin.Create(AName, pdInput, AKind, ALocalY);
+  P.OwnerNode := Self;
+  P.SetTypeId(ADataType);
+  P.AllowMultipleConnections := False;
+  P.SortIndex := FInputs.Count;
+  FInputs.Add(P);
   ReindexPins;
 end;
 
 procedure TCustomNode.AddOutput(AName, ADataType: string; AKind: TPinKind;
   ALocalY: integer);
 var
-  p: TNodePin;
+  P: TNodePin;
 begin
-  p := TNodePin.Create(AName, pdOutput, AKind, ALocalY);
-  p.OwnerNode := Self;
-  p.SetTypeId(ADataType);
-  p.AllowMultipleConnections := True;
-  p.SortIndex := FOutputs.Count;
-  FOutputs.Add(p);
+  P := TNodePin.Create(AName, pdOutput, AKind, ALocalY);
+  P.OwnerNode := Self;
+  P.SetTypeId(ADataType);
+  P.AllowMultipleConnections := True;
+  P.SortIndex := FOutputs.Count;
+  FOutputs.Add(P);
   ReindexPins;
 end;
 
 function TCustomNode.InputCount: integer;
 begin
   if FInputs <> nil then
-  Result := FInputs.Count
+    Result := FInputs.Count
   else
-  Result := 0;
+    Result := 0;
 end;
 
 function TCustomNode.OutputCount: integer;
@@ -445,11 +467,9 @@ var
   i: integer;
 begin
   Result := nil;
-
   for i := 0 to InputCount - 1 do
     if GetInput(i).Id = AId then
       Exit(GetInput(i));
-
   for i := 0 to OutputCount - 1 do
     if GetOutput(i).Id = AId then
       Exit(GetOutput(i));
@@ -459,7 +479,6 @@ function TCustomNode.GetPinLocalPosition(APin: TNodePin): TPoint;
 begin
   if APin = nil then
     Exit(Point(0, 0));
-
   if APin.Direction = pdInput then
     Result := Point(0, APin.LocalY)
   else
@@ -482,7 +501,6 @@ var
 begin
   if (APin = nil) or (APin.OwnerNode <> Self) then
     Exit(PointF(0, 0));
-
   Local := GetPinLocalPosition(APin);
   Result := PointF(X + Local.X, Y + Local.Y);
 end;
@@ -494,70 +512,16 @@ var
   R: integer;
 begin
   P := GetPinScreenPosition(APin, Zoom, OffsetX, OffsetY);
-
   if VisualKind = nvReroute then
     R := Max(5, Radius)
   else
     R := Radius;
-
   Result := Rect(P.X - R, P.Y - R, P.X + R, P.Y + R);
 end;
 
-function TCustomNode.GetPinAt(LocalX, LocalY: integer): TNodePin;
+function TCustomNode.HitTestNode(WX, WY: single): boolean;
 var
-  i: integer;
-  p: TNodePin;
-  CX, CY: integer;
-  R: integer;
-begin
-  Result := nil;
-
-  if VisualKind = nvReroute then
-  begin
-    R := 10;
-
-    for i := 0 to FInputs.Count - 1 do
-    begin
-      p := TNodePin(FInputs[i]);
-      CX := 0;
-      CY := p.LocalY;
-      if Sqrt(Sqr(LocalX - CX) + Sqr(LocalY - CY)) <= R then
-        Exit(p);
-    end;
-
-    for i := 0 to FOutputs.Count - 1 do
-    begin
-      p := TNodePin(FOutputs[i]);
-      CX := Width;
-      CY := p.LocalY;
-      if Sqrt(Sqr(LocalX - CX) + Sqr(LocalY - CY)) <= R then
-        Exit(p);
-    end;
-
-    Exit;
-  end;
-
-  for i := 0 to FInputs.Count - 1 do
-  begin
-    p := TNodePin(FInputs[i]);
-    if (Abs(LocalX) < 14) and (Abs(LocalY - p.LocalY) < 14) then
-      Exit(p);
-  end;
-
-  for i := 0 to FOutputs.Count - 1 do
-  begin
-    p := TNodePin(FOutputs[i]);
-    if (Abs(LocalX - Width) < 14) and (Abs(LocalY - p.LocalY) < 14) then
-      Exit(p);
-  end;
-end;
-
-function TCustomNode.HitTest(WX, WY: single): boolean;
-var
-  CX, CY, RX, RY: single;
-  DX, DY: single;
-  RX2, RY2: single;
-  L, T, R, B: single;
+  CX, CY, RX, RY, DX, DY, RX2, RY2, L, T, R, B: single;
 begin
   if VisualKind = nvReroute then
   begin
@@ -578,19 +542,62 @@ begin
     DY := WY - CY;
     RX2 := RX * RX;
     RY2 := RY * RY;
-
-    Result := (DX * DX * RY2 + DY * DY * RX2) <= (RX2 * RY2);
-    Exit;
+    Exit((DX * DX * RY2 + DY * DY * RX2) <= (RX2 * RY2));
   end;
 
   Result := (WX >= X) and (WY >= Y) and (WX <= X + Width) and (WY <= Y + Height);
+end;
+
+function TCustomNode.HitTestPin(WX, WY: single; Zoom: double): TNodePin;
+var
+  i: integer;
+  P: TNodePin;
+  PW: TPointF;
+  R: single;
+begin
+  Result := nil;
+  if VisualKind = nvComment then
+    Exit;
+
+  R := GetPinHitRadiusWorld(Zoom);
+
+  for i := 0 to InputCount - 1 do
+  begin
+    P := GetInput(i);
+    if (P = nil) or P.Hidden then Continue;
+    PW := GetPinWorldPosition(P);
+    if Hypot(WX - PW.X, WY - PW.Y) <= R then
+      Exit(P);
+  end;
+
+  for i := 0 to OutputCount - 1 do
+  begin
+    P := GetOutput(i);
+    if (P = nil) or P.Hidden then Continue;
+    PW := GetPinWorldPosition(P);
+    if Hypot(WX - PW.X, WY - PW.Y) <= R then
+      Exit(P);
+  end;
+end;
+
+function TCustomNode.HitTestResizeHandle(WX, WY: single; const AState: TNodeRenderState): boolean;
+var
+  R: TRect;
+  SX, SY: integer;
+begin
+  if VisualKind = nvReroute then
+    Exit(False);
+
+  R := GetResizeHandleRectScreen(AState);
+  SX := Round(WX * AState.Zoom + AState.OffsetX);
+  SY := Round(WY * AState.Zoom + AState.OffsetY);
+  Result := PointInRectInclusive(R, SX, SY);
 end;
 
 function TCustomNode.GetScreenBounds(Zoom: double; OffsetX, OffsetY: double): TRect;
 begin
   Result.Left := Round(X * Zoom + OffsetX);
   Result.Top := Round(Y * Zoom + OffsetY);
-
   Result.Right := Round((X + Width) * Zoom + OffsetX);
   Result.Bottom := Round((Y + Height) * Zoom + OffsetY);
 end;
@@ -601,20 +608,17 @@ var
 begin
   for i := 0 to FValues.Count - 1 do
     TObject(FValues[i]).Free;
-
   FValues.Clear;
 end;
 
 function TCustomNode.AddValue(const AName: string; AKind: TNodeValueKind): TNodeValue;
 begin
   Result := FindValue(AName);
-
   if Result <> nil then
   begin
     Result.Kind := AKind;
     Exit;
   end;
-
   Result := TNodeValue.Create(AName, AKind);
   FValues.Add(Result);
 end;
@@ -625,7 +629,6 @@ var
   V: TNodeValue;
 begin
   Result := nil;
-
   for i := 0 to FValues.Count - 1 do
   begin
     V := TNodeValue(FValues[i]);
@@ -647,21 +650,18 @@ begin
     Result := nil;
 end;
 
-procedure TCustomNode.Paint(Canvas: TCanvas; Zoom: double; OffsetX, OffsetY: integer);
+procedure TCustomNode.PaintBody(Canvas: TCanvas; const ARect: TRect;
+  const AState: TNodeRenderState);
 var
   R, HeaderR, BodyR: TRect;
   HeaderH: integer;
 begin
-  R := GetScreenBounds(Zoom, OffsetX, OffsetY);
-
-  HeaderH := Max(20, Round(28 * Zoom));
+  R := ARect;
+  HeaderH := GetHeaderHeight(AState.Zoom);
 
   if Collapsed and (VisualKind = nvNormal) then
-  begin
     R.Bottom := R.Top + HeaderH;
-  end;
 
-  // REROUTE NODE
   if VisualKind = nvReroute then
   begin
     Canvas.Pen.Style := psSolid;
@@ -669,56 +669,54 @@ begin
 
     if Selected then
     begin
-      Canvas.Brush.Color := clNone;
+      Canvas.Brush.Style := bsClear;
       Canvas.Pen.Color := clRed;
-      Canvas.Pen.Width := Max(2, Round(3 * Zoom));
+      Canvas.Pen.Width := Max(2, Round(3 * AState.Zoom));
       Canvas.Ellipse(R.Left - 5, R.Top - 5, R.Right + 5, R.Bottom + 5);
     end
     else if Highlighted then
     begin
-      Canvas.Brush.Color := clNone;
+      Canvas.Brush.Style := bsClear;
       Canvas.Pen.Color := clAqua;
-      Canvas.Pen.Width := Max(2, Round(3 * Zoom));
+      Canvas.Pen.Width := Max(2, Round(3 * AState.Zoom));
       Canvas.Ellipse(R.Left - 4, R.Top - 4, R.Right + 4, R.Bottom + 4);
     end
     else if Hovered then
     begin
-      Canvas.Brush.Color := clNone;
+      Canvas.Brush.Style := bsClear;
       Canvas.Pen.Color := clBlue;
-      Canvas.Pen.Width := Max(1, Round(2 * Zoom));
+      Canvas.Pen.Width := Max(1, Round(2 * AState.Zoom));
       Canvas.Ellipse(R.Left - 3, R.Top - 3, R.Right + 3, R.Bottom + 3);
     end;
 
     Canvas.Brush.Style := bsSolid;
     Canvas.Brush.Color := $00F8F8F8;
     Canvas.Pen.Color := $00404040;
-    Canvas.Pen.Width := Max(1, Round(2 * Zoom));
+    Canvas.Pen.Width := Max(1, Round(2 * AState.Zoom));
     Canvas.Ellipse(R.Left, R.Top, R.Right, R.Bottom);
 
     Canvas.Brush.Color := $00FFFFFF;
     Canvas.Pen.Color := $00808080;
     Canvas.Pen.Width := 1;
     Canvas.Ellipse(
-      R.Left + Round(6 * Zoom),
-      R.Top + Round(6 * Zoom),
-      R.Right - Round(6 * Zoom),
-      R.Bottom - Round(6 * Zoom)
-      );
+      R.Left + Round(6 * AState.Zoom),
+      R.Top + Round(6 * AState.Zoom),
+      R.Right - Round(6 * AState.Zoom),
+      R.Bottom - Round(6 * AState.Zoom)
+    );
 
     Canvas.Pen.Color := $00505050;
-    Canvas.Pen.Width := Max(1, Round(2 * Zoom));
-    Canvas.MoveTo(R.Left - Round(10 * Zoom), (R.Top + R.Bottom) div 2);
-    Canvas.LineTo(R.Left + Round(5 * Zoom), (R.Top + R.Bottom) div 2);
-    Canvas.MoveTo(R.Right - Round(5 * Zoom), (R.Top + R.Bottom) div 2);
-    Canvas.LineTo(R.Right + Round(10 * Zoom), (R.Top + R.Bottom) div 2);
+    Canvas.Pen.Width := Max(1, Round(2 * AState.Zoom));
+    Canvas.MoveTo(R.Left - Round(10 * AState.Zoom), (R.Top + R.Bottom) div 2);
+    Canvas.LineTo(R.Left + Round(5 * AState.Zoom), (R.Top + R.Bottom) div 2);
+    Canvas.MoveTo(R.Right - Round(5 * AState.Zoom), (R.Top + R.Bottom) div 2);
+    Canvas.LineTo(R.Right + Round(10 * AState.Zoom), (R.Top + R.Bottom) div 2);
 
     Canvas.Pen.Width := 1;
     Canvas.Brush.Style := bsSolid;
-    Canvas.Pen.Style := psSolid;
     Exit;
   end;
 
-  // COMMENT NODE
   if VisualKind = nvComment then
   begin
     if Selected then
@@ -745,12 +743,12 @@ begin
     Canvas.Brush.Color := BodyColor;
     Canvas.Rectangle(R);
 
-    HeaderR := Rect(R.Left, R.Top, R.Right, R.Top + Max(18, Round(24 * Zoom)));
+    HeaderR := Rect(R.Left, R.Top, R.Right, R.Top + Max(18, Round(24 * AState.Zoom)));
     Canvas.Brush.Color := HeaderColor;
     Canvas.FillRect(HeaderR);
 
     Canvas.Font.Color := clBlack;
-    Canvas.Font.Size := Max(7, Round(10 * Zoom));
+    Canvas.Font.Size := Max(7, Round(10 * AState.Zoom));
     Canvas.Brush.Style := bsClear;
     Canvas.TextOut(R.Left + 8, R.Top + 5, Title);
 
@@ -762,7 +760,6 @@ begin
     Exit;
   end;
 
-  // NORMAL NODE
   BodyR := R;
   Canvas.Brush.Color := BodyColor;
   Canvas.Pen.Style := psClear;
@@ -799,16 +796,203 @@ begin
 
   Canvas.Rectangle(R);
 
-  Canvas.Brush.Style := bsClear;
   Canvas.Font.Color := clBlack;
-  Canvas.Font.Size := Max(6, Round(10 * Zoom));
-  Canvas.TextOut(R.Left + 8, R.Top + Max(4, Round(6 * Zoom)), Title);
-
-  // Pin rendering removed from here. Handled by Editor.
+  Canvas.Font.Size := Max(6, Round(10 * AState.Zoom));
+  Canvas.TextOut(R.Left + 8, R.Top + Max(4, Round(6 * AState.Zoom)), Title);
 
   Canvas.Brush.Style := bsSolid;
   Canvas.Pen.Width := 1;
   Canvas.Pen.Style := psSolid;
+end;
+
+procedure TCustomNode.PaintPin(Canvas: TCanvas; APin: TNodePin; const ACenter: TPoint;
+  ARadius: integer; const AState: TNodeRenderState);
+var
+  FillColor: TColor;
+  InnerRadius: integer;
+  IsSelected: boolean;
+  IsHovered: boolean;
+begin
+  if (Canvas = nil) or (APin = nil) or APin.Hidden then
+    Exit;
+
+  IsSelected := TPinSelectionAccess.Contains(AState.PinSelection, APin);
+  IsHovered := (AState.HoveredPin = APin) and (AState.TempFromPin = nil);
+
+  if APin.Kind = pkExec then
+    FillColor := clWhite
+  else if APin.PinType <> nil then
+    FillColor := APin.PinType.Color
+  else
+    FillColor := clLime;
+
+  Canvas.Brush.Style := bsSolid;
+  Canvas.Brush.Color := FillColor;
+  Canvas.Pen.Style := psSolid;
+  Canvas.Pen.Color := clBlack;
+  Canvas.Pen.Width := 1;
+
+  Canvas.Ellipse(
+    ACenter.X - ARadius, ACenter.Y - ARadius,
+    ACenter.X + ARadius, ACenter.Y + ARadius
+  );
+
+  if APin.Connected then
+  begin
+    InnerRadius := Max(2, ARadius div 2);
+    if APin.AllowMultipleConnections then
+      Canvas.Brush.Color := clWhite
+    else
+      Canvas.Brush.Color := clBlack;
+
+    Canvas.Pen.Style := psClear;
+    Canvas.Ellipse(
+      ACenter.X - InnerRadius, ACenter.Y - InnerRadius,
+      ACenter.X + InnerRadius, ACenter.Y + InnerRadius
+    );
+    Canvas.Pen.Style := psSolid;
+  end;
+
+  if IsSelected then
+  begin
+    Canvas.Brush.Style := bsClear;
+    Canvas.Pen.Color := clLime;
+    Canvas.Pen.Width := 2;
+    Canvas.Ellipse(
+      ACenter.X - ARadius - 3, ACenter.Y - ARadius - 3,
+      ACenter.X + ARadius + 3, ACenter.Y + ARadius + 3
+    );
+  end
+  else if IsHovered or Highlighted then
+  begin
+    Canvas.Brush.Style := bsClear;
+    Canvas.Pen.Color := clAqua;
+    Canvas.Pen.Width := 2;
+    Canvas.Ellipse(
+      ACenter.X - ARadius - 2, ACenter.Y - ARadius - 2,
+      ACenter.X + ARadius + 2, ACenter.Y + ARadius + 2
+    );
+  end;
+
+  if (AState.TempFromPin <> nil) and (AState.HoveredPin = APin) then
+  begin
+    Canvas.Brush.Style := bsClear;
+    if AState.HoveredPinCompatible then
+      Canvas.Pen.Color := clAqua
+    else
+      Canvas.Pen.Color := clRed;
+    Canvas.Pen.Width := 2;
+
+    Canvas.Ellipse(
+      ACenter.X - ARadius - 5, ACenter.Y - ARadius - 5,
+      ACenter.X + ARadius + 5, ACenter.Y + ARadius + 5
+    );
+  end;
+
+  Canvas.Font.Color := clBlack;
+  Canvas.Font.Size := Max(6, Round(10 * AState.Zoom));
+  Canvas.Brush.Style := bsClear;
+  Canvas.Pen.Width := 1;
+end;
+
+procedure TCustomNode.PaintBodyOnly(Canvas: TCanvas; const AState: TNodeRenderState);
+var
+  R: TRect;
+begin
+  if Canvas = nil then
+    Exit;
+  R := GetScreenBounds(AState.Zoom, AState.OffsetX, AState.OffsetY);
+  PaintBody(Canvas, R, AState);
+end;
+
+procedure TCustomNode.PaintSinglePin(Canvas: TCanvas; APin: TNodePin;
+  const ACenter: TPoint; ARadius: integer; const AState: TNodeRenderState);
+begin
+  PaintPin(Canvas, APin, ACenter, ARadius, AState);
+end;
+
+procedure TCustomNode.PaintPinLabel(Canvas: TCanvas; APin: TNodePin;
+  const ACenter: TPoint; ARadius: integer; const AState: TNodeRenderState);
+var
+  S: string;
+begin
+  if (Canvas = nil) or (APin = nil) or APin.Hidden then
+    Exit;
+  if VisualKind = nvComment then
+    Exit;
+  if VisualKind = nvReroute then
+    Exit;
+
+  S := APin.EffectiveDisplayName;
+  if S = '' then
+    Exit;
+
+  Canvas.Font.Color := clBlack;
+  Canvas.Font.Size := Max(6, Round(10 * AState.Zoom));
+  Canvas.Brush.Style := bsClear;
+
+  if APin.Direction = pdInput then
+    Canvas.TextOut(
+      ACenter.X + ARadius + 6,
+      ACenter.Y - Canvas.TextHeight(S) div 2,
+      S
+    )
+  else
+    Canvas.TextOut(
+      ACenter.X - Canvas.TextWidth(S) - ARadius - 6,
+      ACenter.Y - Canvas.TextHeight(S) div 2,
+      S
+    );
+end;
+
+procedure TCustomNode.PaintPins(Canvas: TCanvas; const ARect: TRect;
+  const AState: TNodeRenderState);
+var
+  i, PX, PY, Radius: integer;
+  P: TNodePin;
+  Center: TPoint;
+begin
+  if (Canvas = nil) or (VisualKind = nvComment) then
+    Exit;
+
+  Radius := Max(2, Round(AState.PinRadius * AState.Zoom));
+
+  for i := 0 to InputCount - 1 do
+  begin
+    P := GetInput(i);
+    if (P = nil) or P.Hidden then Continue;
+
+    PX := ARect.Left;
+    PY := ARect.Top + Round(P.LocalY * AState.Zoom);
+    Center := Point(PX, PY);
+
+    PaintSinglePin(Canvas, P, Center, Radius, AState);
+    PaintPinLabel(Canvas, P, Center, Radius, AState);
+  end;
+
+  for i := 0 to OutputCount - 1 do
+  begin
+    P := GetOutput(i);
+    if (P = nil) or P.Hidden then Continue;
+
+    PX := ARect.Right;
+    PY := ARect.Top + Round(P.LocalY * AState.Zoom);
+    Center := Point(PX, PY);
+
+    PaintSinglePin(Canvas, P, Center, Radius, AState);
+    PaintPinLabel(Canvas, P, Center, Radius, AState);
+  end;
+end;
+
+procedure TCustomNode.Paint(Canvas: TCanvas; const AState: TNodeRenderState);
+var
+  R: TRect;
+begin
+  if Canvas = nil then
+    Exit;
+  R := GetScreenBounds(AState.Zoom, AState.OffsetX, AState.OffsetY);
+  PaintBody(Canvas, R, AState);
+  PaintPins(Canvas, R, AState);
 end;
 
 procedure TCustomNode.SaveToJSON(AObj: TJSONObject);
@@ -835,13 +1019,11 @@ begin
   AObj.Add('collapsed', Collapsed);
   AObj.Add('zOrder', ZOrder);
 
-  // PINS
   PinsArr := TJSONArray.Create;
   for i := 0 to InputCount - 1 do
   begin
     P := GetInput(i);
     PinObj := TJSONObject.Create;
-
     PinObj.Add('id', P.Id);
     PinObj.Add('name', P.Name);
     PinObj.Add('displayName', P.DisplayName);
@@ -849,7 +1031,6 @@ begin
     PinObj.Add('direction', PinDirectionToStr(P.Direction));
     PinObj.Add('dataType', P.DataType);
     PinObj.Add('localY', P.LocalY);
-
     PinObj.Add('isRequired', P.IsRequired);
     PinObj.Add('defaultValue', P.DefaultValue);
     PinObj.Add('tooltip', P.Tooltip);
@@ -864,7 +1045,6 @@ begin
       P.PinType.SaveToJSON(PinTypeObj);
       PinObj.Add('pinType', PinTypeObj);
     end;
-
     PinsArr.Add(PinObj);
   end;
 
@@ -872,7 +1052,6 @@ begin
   begin
     P := GetOutput(i);
     PinObj := TJSONObject.Create;
-
     PinObj.Add('id', P.Id);
     PinObj.Add('name', P.Name);
     PinObj.Add('displayName', P.DisplayName);
@@ -889,13 +1068,10 @@ begin
       P.PinType.SaveToJSON(PinTypeObj);
       PinObj.Add('pinType', PinTypeObj);
     end;
-
     PinsArr.Add(PinObj);
   end;
-
   AObj.Add('pins', PinsArr);
 
-  // VALUES
   ValuesArr := TJSONArray.Create;
   for i := 0 to ValueCount - 1 do
   begin
@@ -928,13 +1104,11 @@ begin
   Height := AObj.Get('height', Height);
   HeaderColor := TColor(AObj.Get('headerColor', integer(HeaderColor)));
   BodyColor := TColor(AObj.Get('bodyColor', integer(BodyColor)));
-
   VisualKind := TNodeVisualKind(AObj.Get('visualKind', Ord(nvNormal)));
   CommentText := AObj.Get('commentText', CommentText);
   Collapsed := AObj.Get('collapsed', False);
   ZOrder := AObj.Get('zOrder', 0);
 
-  // Pins
   ClearPins;
   PinsArr := AObj.Arrays['pins'];
   if PinsArr <> nil then
@@ -942,19 +1116,17 @@ begin
     for i := 0 to PinsArr.Count - 1 do
     begin
       PinObj := PinsArr.Objects[i];
-
       Dir := StrToPinDirection(PinObj.Get('direction', 'input'));
       Kind := StrToPinKind(PinObj.Get('kind', 'data'));
 
       P := TNodePin.Create(PinObj.Get('name', ''), Dir, Kind, PinObj.Get('localY', 40));
-
       P.Id := PinObj.Get('id', P.Id);
       P.DisplayName := PinObj.Get('displayName', P.Name);
       P.DataType := PinObj.Get('dataType', '');
       P.SetTypeId(P.DataType);
 
       PinTypeObj := PinObj.Objects['pinType'];
-      if PinTypeObj <> nil then
+      if (PinTypeObj <> nil) and (P.PinType <> nil) then
         P.PinType.LoadFromJSON(PinTypeObj);
 
       P.IsRequired := PinObj.Get('isRequired', False);
@@ -962,10 +1134,8 @@ begin
       P.Tooltip := PinObj.Get('tooltip', '');
       P.Hidden := PinObj.Get('hidden', False);
       P.Advanced := PinObj.Get('advanced', False);
-      P.AllowMultipleConnections :=
-        PinObj.Get('allowMultipleConnections', Dir = pdOutput);
+      P.AllowMultipleConnections := PinObj.Get('allowMultipleConnections', Dir = pdOutput);
       P.SortIndex := PinObj.Get('sortIndex', 0);
-
       P.OwnerNode := Self;
 
       if Dir = pdInput then
@@ -977,7 +1147,6 @@ begin
   else
     SetupPins;
 
-  // Values
   ClearValues;
   ValuesArr := AObj.Arrays['values'];
   if ValuesArr <> nil then
@@ -991,8 +1160,6 @@ begin
     end;
   end;
 end;
-
-{ Default node implementations }
 
 constructor TDefaultNode.Create(ATitle: string; AX, AY: single;
   AWidth, AHeight: integer);
@@ -1039,14 +1206,16 @@ end;
 procedure TAddNode.SetupPins;
 begin
   ClearPins;
-
   AddInput('A', 'float', pkData, 45);
   GetInput(InputCount - 1).IsRequired := True;
-
   AddInput('B', 'float', pkData, 75);
   GetInput(InputCount - 1).IsRequired := True;
-
   AddOutput('Result', 'float', pkData, 60);
+end;
+
+function TRerouteNode.GetPinHitRadiusWorld(Zoom: double): single;
+begin
+  Result := 9 / Zoom;
 end;
 
 constructor TRerouteNode.Create(ATitle: string; AX, AY: single;
@@ -1068,7 +1237,6 @@ begin
 
   if InputCount > 0 then
     GetInput(0).AllowMultipleConnections := False;
-
   if OutputCount > 0 then
     GetOutput(0).AllowMultipleConnections := True;
 end;
@@ -1088,8 +1256,6 @@ procedure TCommentNode.SetupPins;
 begin
   ClearPins;
 end;
-
-{ TNodeDefinition }
 
 constructor TNodeDefinition.Create;
 begin
@@ -1113,13 +1279,14 @@ var
   i: integer;
 begin
   F := UTF8LowerCase(Trim(AFilter));
-
   if F = '' then
     Exit(True);
 
   Result :=
-    (Pos(F, UTF8LowerCase(NodeType)) > 0) or (Pos(F, UTF8LowerCase(Caption)) > 0) or
-    (Pos(F, UTF8LowerCase(Category)) > 0) or (Pos(F, UTF8LowerCase(Description)) > 0);
+    (Pos(F, UTF8LowerCase(NodeType)) > 0) or
+    (Pos(F, UTF8LowerCase(Caption)) > 0) or
+    (Pos(F, UTF8LowerCase(Category)) > 0) or
+    (Pos(F, UTF8LowerCase(Description)) > 0);
 
   if Result then
     Exit;
@@ -1128,8 +1295,6 @@ begin
     if Pos(F, UTF8LowerCase(Tags[i])) > 0 then
       Exit(True);
 end;
-
-{ TNodeRegistry }
 
 constructor TNodeRegistry.Create;
 begin
@@ -1143,7 +1308,6 @@ var
 begin
   for i := 0 to FItems.Count - 1 do
     TObject(FItems[i]).Free;
-
   FItems.Free;
   inherited Destroy;
 end;
@@ -1182,7 +1346,6 @@ begin
     TagsSL.Delimiter := ',';
     TagsSL.StrictDelimiter := True;
     TagsSL.DelimitedText := ATags;
-
     for i := 0 to TagsSL.Count - 1 do
       if Trim(TagsSL[i]) <> '' then
         It.Tags.Add(Trim(TagsSL[i]));
@@ -1199,7 +1362,6 @@ var
   It: TNodeRegistryItem;
 begin
   Result := nil;
-
   for i := 0 to FItems.Count - 1 do
   begin
     It := TNodeRegistryItem(FItems[i]);
@@ -1213,7 +1375,6 @@ var
   It: TNodeRegistryItem;
 begin
   It := FindItem(ANodeType);
-
   if It <> nil then
   begin
     Result := It.NodeClass.Create(It.Caption, AX, AY);

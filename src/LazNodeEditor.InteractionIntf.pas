@@ -29,14 +29,16 @@ uses
   Controls, Types,
   LazNodeEditor.Types,
   LazNodeEditor.Nodes,
-  LazNodeEditor.Graph,
-  LazNodeEditor.HitTest;
+  LazNodeEditor.Graph;
 
 type
   INodeEditorInteractionHost = interface
     ['{D17F5C22-9B4D-4A62-A6A8-7D31EFD2A001}']
     // HitTest & Coordinates
-    function HitTest(SX, SY: integer): THitTestResult;
+    function HitTestNodeAt(SX, SY: integer): TCustomNode;
+    function HitTestPinAt(SX, SY: integer; out ANode: TCustomNode): TNodePin;
+    function HitTestLinkAt(SX, SY: integer): TNodeLink;
+    function HitTestResizeHandleAt(SX, SY: integer): TCustomNode;
     function ScreenToWorld(SX, SY: integer): TPointF;
     function IsMouseNearLinkStart(ALink: TNodeLink; SX, SY: integer): boolean;
     function IsLinkInsideWorldRect(ALink: TNodeLink; const R: TRectF): boolean;
