@@ -55,7 +55,16 @@ type
 
   TNodePinTypeFlags = set of TNodePinTypeFlag;
 
-  TPointfArray = array of TPointF;
+  TPinSide = (psLeft, psRight, psTop, psBottom);
+
+  TLinkDrawStyle = (
+    ldsBezier,
+    ldsStraight,
+    ldsOrthogonal
+  );
+
+  TPointFArray = array of TPointF;
+  TRectFArray = array of TRectF;
 
   TNodeVisualKind = (nvNormal, nvReroute, nvComment);
   TGraphValidationIssueKind = (gviError, gviWarning);
@@ -129,6 +138,7 @@ type
     DisplayName: string;
     Kind: TPinKind;
     Direction: TPinDirection;
+    Side: TPinSide;
 
     DataType: string;
     PinType: TNodePinType;
@@ -301,6 +311,33 @@ begin
       Include(Result, F);
 end;
 
+function ExpandRectF(const R: TRectF; D: single): TRectF; inline;
+begin
+  Result := RectF(R.Left - D, R.Top - D, R.Right + D, R.Bottom + D);
+end;
+
+function PointInsideRectF(const P: TPointF; const R: TRectF): boolean; inline;
+begin
+  Result := (P.X >= R.Left) and (P.X <= R.Right) and
+            (P.Y >= R.Top) and (P.Y <= R.Bottom);
+end;
+
+function SegmentHitsRectF(const A, B: TPointF; const R: TRectF): boolean;
+begin
+  Result := LineIntersectsRect(Round(A.X), Round(A.Y), Round(B.X), Round(B.Y),
+    Rect(Round(R.Left), Round(R.Top), Round(R.Right), Round(R.Bottom)));
+end;
+
+function SideNormal(ASide: TPinSide): TPointF; inline;
+begin
+  case ASide of
+    psLeft:   Result := PointF(-1, 0);
+    psRight:  Result := PointF(1, 0);
+    psTop:    Result := PointF(0, -1);
+    psBottom: Result := PointF(0, 1);
+  end;
+end;
+
 constructor TNodePinType.Create(const ATypeId: string; const ACategory: string;
   AColor: TColor);
 begin
@@ -421,6 +458,12 @@ begin
   Direction := ADir;
   Kind := AKind;
   LocalY := ALocalY;
+
+  if ADir = pdInput then
+    Side := psLeft
+  else
+    Side := psRight;
+
   DataType := '';
   PinType := TNodePinType.Create('any', '', clLime);
   OwnerNode := nil;
@@ -485,6 +528,7 @@ function TNodeLink.GetBezierWorldPoints(out P0, P1, P2, P3: TPointF): boolean;
 var
   N0, N1: TCustomNode;
   DX, DY, Dist, D: single;
+  V0, V1: TPointF;
 begin
   Result := False;
   P0 := PointF(0, 0);
@@ -509,12 +553,13 @@ begin
   DX := P3.X - P0.X;
   DY := P3.Y - P0.Y;
   Dist := Hypot(DX, DY);
-  D := EnsureRange(Dist * 0.35, 30, 150);
+  D := EnsureRange(Dist * 0.35, 24, 150);
 
-  P1 := P0;
-  P2 := P3;
-  P1.X := P1.X + D;
-  P2.X := P2.X - D;
+  V0 := SideNormal(FromPin.Side);
+  V1 := SideNormal(ToPin.Side);
+
+  P1 := PointF(P0.X + V0.X * D, P0.Y + V0.Y * D);
+  P2 := PointF(P3.X + V1.X * D, P3.Y + V1.Y * D);
 
   Result := True;
 end;

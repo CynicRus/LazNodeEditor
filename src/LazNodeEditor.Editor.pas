@@ -37,6 +37,7 @@ uses
   LazNodeEditor.Renderer,
   LazNodeEditor.InteractionIntf,
   LazNodeEditor.Interaction,
+  LazNodeEditor.LinkRouter,
   GL2DCanvas, LazNodeEditor.GLCanvasProxy;
 
 type
@@ -49,6 +50,8 @@ type
   TEditorPinsConnectedEvent = procedure(Sender: TObject;
     AFromPin, AToPin: TNodePin) of object;
   TEditorZoomChangedEvent = procedure(Sender: TObject) of object;
+
+  { TLazNodeEditor }
 
   TLazNodeEditor = class(TCustomControl, INodeEditorInteractionHost)
   private
@@ -100,9 +103,11 @@ type
     FOnBeforeConnectPins: TEditorConnectPinsEvent;
     FOnAfterConnectPins: TEditorPinsConnectedEvent;
 
+    function GetLinkDrawStyle: TLinkDrawStyle;
     function GetRendererStyle: TRenderStyle;
     function GetZoom: double;
     function GetZoomStep: double;
+    procedure SetLinkDrawStyle(AValue: TLinkDrawStyle);
     procedure SetOnDrawGrid(AValue: TRenderGridDrawEvent);
     procedure SetOnDrawLink(AValue: TRenderLinkDrawEvent);
     procedure SetOnDrawNode(AValue: TRenderNodeDrawEvent);
@@ -311,6 +316,8 @@ type
       read FOnBeforeConnectPins write FOnBeforeConnectPins;
     property OnAfterConnectPins: TEditorPinsConnectedEvent
       read FOnAfterConnectPins write FOnAfterConnectPins;
+    property LinkDrawStyle: TLinkDrawStyle
+      read GetLinkDrawStyle write SetLinkDrawStyle default ldsBezier;
   end;
 
 function NodeVisualLayer(ANode: TCustomNode): integer; inline;
@@ -582,6 +589,19 @@ begin
   Result := FRenderer.Style;
 end;
 
+function TLazNodeEditor.GetLinkDrawStyle: TLinkDrawStyle;
+begin
+  Result := FGraph.DefaultLinkDrawStyle;
+end;
+
+procedure TLazNodeEditor.SetLinkDrawStyle(AValue: TLinkDrawStyle);
+begin
+  if FGraph.DefaultLinkDrawStyle = AValue then
+    Exit;
+  FGraph.DefaultLinkDrawStyle := AValue;
+  Invalidate;
+end;
+
 function TLazNodeEditor.GetZoom: double;
 begin
   Result := FViewport.Zoom;
@@ -724,6 +744,8 @@ procedure TLazNodeEditor.RequestRepaint(const AForce: boolean);
 var
   T: QWord;
 begin
+  if (FGraph <> nil) and (FGraph.LinkRouter <> nil) then
+    (FGraph.LinkRouter as TNodeLinkRouter).InvalidateCache;
   if AForce then
   begin
     Invalidate;
@@ -806,10 +828,19 @@ begin
   Result := nil;
   W := ScreenToWorld(SX, SY);
   Tol := 8 / Max(FViewport.Zoom, 0.001);
+
   for i := FGraph.Links.Count - 1 downto 0 do
   begin
     L := TNodeLink(FGraph.Links[i]);
-    if (L <> nil) and L.HitTest(W, Tol) then
+    if L = nil then
+      Continue;
+
+    if (FGraph.LinkRouter <> nil) then
+    begin
+      if FGraph.LinkRouter.HitTest(L, W, Tol) then
+        Exit(L);
+    end
+    else if L.HitTest(W, Tol) then
       Exit(L);
   end;
 end;
@@ -848,30 +879,15 @@ end;
 
 function TLazNodeEditor.IsLinkInsideWorldRect(ALink: TNodeLink;
   const R: TRectF): boolean;
-var
-  P0, P1, P2, P3, Prev, Cur: TPointF;
-  k: integer;
-  BR: TRectF;
 begin
   Result := False;
-  if (ALink = nil) or not ALink.GetBezierWorldPoints(P0, P1, P2, P3) then
+  if ALink = nil then
     Exit;
 
-  BR := RectF(Min(Min(P0.X, P1.X), Min(P2.X, P3.X)),
-    Min(Min(P0.Y, P1.Y), Min(P2.Y, P3.Y)), Max(Max(P0.X, P1.X), Max(P2.X, P3.X)),
-    Max(Max(P0.Y, P1.Y), Max(P2.Y, P3.Y)));
-
-  if not RectFIntersects(BR, R) then Exit(False);
-  if PtInRectF(P0, R) or PtInRectF(P3, R) then Exit(True);
-
-  Prev := P0;
-  for k := 1 to 20 do
-  begin
-    Cur := CubicBezierPointF(P0, P1, P2, P3, k / 20);
-    if PtInRectF(Cur, R) or LineIntersectsRectF(Prev, Cur, R) then
-      Exit(True);
-    Prev := Cur;
-  end;
+  if FGraph.LinkRouter <> nil then
+    Result := FGraph.LinkRouter.IsInsideRect(ALink, R)
+  else
+    Result := False;
 end;
 
 function TLazNodeEditor.IsMouseNearLinkStart(ALink: TNodeLink; SX, SY: integer): boolean;
@@ -879,14 +895,12 @@ var
   P0, P3, M: TPointF;
 begin
   Result := False;
-  if (ALink = nil) or (ALink.FromPin = nil) or (ALink.ToPin = nil) then Exit;
-  M := ScreenToWorld(SX, SY);
+  if (ALink = nil) or (ALink.FromPin = nil) or (ALink.ToPin = nil) then
+    Exit;
 
-  if not ALink.GetBezierWorldPoints(P0, P3, P3, P3) then
-  begin
-    P0 := TCustomNode(ALink.FromPin.OwnerNode).GetPinWorldPosition(ALink.FromPin);
-    P3 := TCustomNode(ALink.ToPin.OwnerNode).GetPinWorldPosition(ALink.ToPin);
-  end;
+  M := ScreenToWorld(SX, SY);
+  P0 := TCustomNode(ALink.FromPin.OwnerNode).GetPinWorldPosition(ALink.FromPin);
+  P3 := TCustomNode(ALink.ToPin.OwnerNode).GetPinWorldPosition(ALink.ToPin);
 
   Result := Hypot(M.X - P0.X, M.Y - P0.Y) <= Hypot(M.X - P3.X, M.Y - P3.Y);
 end;

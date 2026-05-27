@@ -31,6 +31,7 @@ uses
   LazNodeEditor.Nodes,
   LazNodeEditor.Graph,
   GL2DCanvas,
+  LazNodeEditor.LinkRouter,
   LazNodeEditor.GLCanvasProxy;
 
 type
@@ -54,8 +55,8 @@ type
     ASelected, AHovered, AHighlighted: boolean; var AHandled: boolean) of object;
 
   TRenderLinkDrawEvent = procedure(Sender: TObject; Canvas: TCanvas;
-    ALink: TNodeLink; const P0, P1, P2, P3: TPoint; ASelected, AHovered: boolean;
-    var AHandled: boolean) of object;
+    ALink: TNodeLink; const APath: TLinkPath; ASelected, AHovered: boolean;
+    Zoom, OffsetX, OffsetY: double; var AHandled: boolean) of object;
 
   TRenderGridDrawEvent = procedure(Sender: TObject; Canvas: TCanvas;
     const VisibleWorldRect: TRectF; Zoom, OffsetX, OffsetY: double;
@@ -213,6 +214,8 @@ type
     procedure DrawNodes(const AContext: TRenderContext); virtual;
     procedure DrawPins(const AContext: TRenderContext); virtual;
     procedure DrawNodePins(const AContext: TRenderContext; ANode: TCustomNode); virtual;
+    procedure DrawResizeHandle(const AContext: TRenderContext;
+      ANode: TCustomNode); virtual;
     procedure DrawBoxSelect(const AContext: TRenderContext); virtual;
     procedure DrawSnapGuides(const AContext: TRenderContext); virtual;
     procedure DrawResizeHandles(const AContext: TRenderContext); virtual;
@@ -402,8 +405,6 @@ begin
     DrawLinks(AContext);
     DrawRegularNodes(AContext);
     DrawTemporaryLink(AContext);
-    DrawPins(AContext);
-    DrawResizeHandles(AContext);
     DrawSnapGuides(AContext);
     DrawBoxSelect(AContext);
   finally
@@ -492,8 +493,7 @@ var
   i: integer;
   L: TNodeLink;
   Selected, Hovered: boolean;
-  P0W, P1W, P2W, P3W: TPointF;
-  P0, P1, P2, P3: TPoint;
+  Path: TLinkPath;
   Handled: boolean;
 begin
   if (AContext.Graph = nil) or (AContext.Graph.Links = nil) then
@@ -508,21 +508,31 @@ begin
     Selected := AContext.RenderState.SelectedLink = L;
     Hovered := AContext.RenderState.HoveredLink = L;
 
-    if not L.GetBezierWorldPoints(P0W, P1W, P2W, P3W) then
-      Continue;
+    if AContext.Graph.LinkRouter <> nil then
+    begin
+      Path.Kind := lpkPolyline;
+      SetLength(Path.Points, 0);
 
-    P0 := WorldToScreen(P0W.X, P0W.Y, AContext.Zoom, AContext.OffsetX, AContext.OffsetY);
-    P1 := WorldToScreen(P1W.X, P1W.Y, AContext.Zoom, AContext.OffsetX, AContext.OffsetY);
-    P2 := WorldToScreen(P2W.X, P2W.Y, AContext.Zoom, AContext.OffsetX, AContext.OffsetY);
-    P3 := WorldToScreen(P3W.X, P3W.Y, AContext.Zoom, AContext.OffsetX, AContext.OffsetY);
+      if AContext.Graph.LinkRouter <> nil then
+        Path := (AContext.Graph.LinkRouter as TNodeLinkRouter).GetPaintPath(L);
+    end;
+
+
 
     Handled := False;
     if Assigned(AContext.OnDrawLink) then
       AContext.OnDrawLink(AContext.Sender, AContext.EventCanvas, L,
-        P0, P1, P2, P3, Selected, Hovered, Handled);
+        Path, Selected, Hovered, AContext.Zoom, AContext.OffsetX, AContext.OffsetY,
+        Handled);
 
     if not Handled then
-      L.Paint(AContext.EventCanvas, AContext.RenderState, Selected, Hovered);
+    begin
+      if (AContext.Graph.LinkRouter <> nil) then
+        AContext.Graph.LinkRouter.Paint(AContext.EventCanvas, L,
+          AContext.RenderState, Selected, Hovered)
+      else
+        L.Paint(AContext.EventCanvas, AContext.RenderState, Selected, Hovered);
+    end;
   end;
 end;
 
@@ -546,6 +556,7 @@ begin
     ANode.PaintBodyOnly(AContext.EventCanvas, AContext.RenderState);
 
   DrawNodePins(AContext, ANode);
+  DrawResizeHandle(AContext, ANode);
 end;
 
 procedure TAbstractNodeEditorRenderer.DrawCommentNodes(const AContext: TRenderContext);
@@ -583,12 +594,6 @@ begin
 end;
 
 procedure TAbstractNodeEditorRenderer.DrawTemporaryLink(const AContext: TRenderContext);
-var
-  FromPin: TNodePin;
-  FromNode: TCustomNode;
-  P0, P1, P2, P3: TPoint;
-  P0W: TPointF;
-  DX, DY, Dist, D: single;
 begin
   if AContext.EventCanvas = nil then
     Exit;
@@ -596,40 +601,12 @@ begin
   if AContext.RenderState.TempFromPin = nil then
     Exit;
 
-  FromPin := TNodePin(AContext.RenderState.TempFromPin);
-  if (FromPin = nil) or not (FromPin.OwnerNode is TCustomNode) then
-    Exit;
-
-  FromNode := TCustomNode(FromPin.OwnerNode);
-  P0W := FromNode.GetPinWorldPosition(FromPin);
-  P0 := WorldToScreen(P0W.X, P0W.Y, AContext.Zoom, AContext.OffsetX, AContext.OffsetY);
-  P3 := AContext.RenderState.TempMousePos;
-
-  DX := P3.X - P0.X;
-  DY := P3.Y - P0.Y;
-  Dist := Hypot(DX, DY);
-  D := EnsureRange(Dist * 0.35, 30, 150);
-
-  if FromPin.Direction = pdOutput then
-  begin
-    P1 := Point(P0.X + Round(D), P0.Y);
-    P2 := Point(P3.X - Round(D), P3.Y);
-  end
-  else
-  begin
-    P1 := Point(P0.X - Round(D), P0.Y);
-    P2 := Point(P3.X + Round(D), P3.Y);
-  end;
-
-  AContext.EventCanvas.Brush.Style := bsClear;
-  AContext.EventCanvas.Pen.Style := psDash;
-  AContext.EventCanvas.Pen.Color := clAqua;
-  AContext.EventCanvas.Pen.Width := Max(1, Round(3 * AContext.Zoom));
-  DrawCubicBezier(AContext.EventCanvas, P0, P1, P2, P3, 24);
-
-  AContext.EventCanvas.Pen.Style := psSolid;
-  AContext.EventCanvas.Pen.Width := 1;
-  AContext.EventCanvas.Brush.Style := bsSolid;
+  if (AContext.Graph <> nil) and (AContext.Graph.LinkRouter <> nil) then
+    AContext.Graph.LinkRouter.PaintTemporary(
+      AContext.EventCanvas,
+      TNodePin(AContext.RenderState.TempFromPin),
+      AContext.RenderState.TempMousePos,
+      AContext.Zoom, AContext.OffsetX, AContext.OffsetY);
 end;
 
 procedure TAbstractNodeEditorRenderer.DrawNodes(const AContext: TRenderContext);
@@ -685,7 +662,8 @@ begin
     Selected := TPinSelectionAccess.Contains(AContext.RenderState.PinSelection, P);
     Hovered := (AContext.RenderState.HoveredPin = P);
 
-    Highlighted := ANode.Highlighted or ((AContext.RenderState.TempFromPin <> nil) and
+    Highlighted := ANode.Highlighted or
+      ((AContext.RenderState.TempFromPin <> nil) and
       (AContext.RenderState.HoveredPin = P));
 
     Handled := False;
@@ -727,6 +705,24 @@ begin
 
     ANode.PaintPinLabel(AContext.EventCanvas, P, Center, Radius, AContext.RenderState);
   end;
+end;
+
+procedure TAbstractNodeEditorRenderer.DrawResizeHandle(const AContext: TRenderContext;
+  ANode: TCustomNode);
+var
+  i: integer;
+  R: TRect;
+begin
+  if not AContext.DrawResizeHandles then
+    Exit;
+  if (AContext.Graph = nil) or (AContext.Graph.Nodes = nil) then
+    Exit;
+
+  SetBrush(AContext, FStyle.ResizeHandleBrushColor, bsSolid);
+  SetPen(AContext, FStyle.ResizeHandlePenColor, 1, psSolid);
+
+  ANode.PaintResizeHandle(AContext.EventCanvas, GetResizeHandleRect(ANode, AContext),
+    AContext.RenderState);
 end;
 
 procedure TAbstractNodeEditorRenderer.DrawBoxSelect(const AContext: TRenderContext);

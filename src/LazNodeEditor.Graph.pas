@@ -30,7 +30,9 @@ uses
   Generics.Collections,
   GenericDAG,
   LazNodeEditor.Types,
-  LazNodeEditor.Nodes;
+  LazNodeEditor.Nodes,
+  LazNodeEditor.LinkRouter,
+  LazNodeEditor.GraphIntf;
 
 type
   TNodeGraph = class;
@@ -43,8 +45,11 @@ type
   TCustomNodeList = specialize TObjectList<TCustomNode>;
 
   { TNodeGraph — MODEL}
-  TNodeGraph = class
+ type
+  TNodeGraph = class(TNoRefCountObject, INodeGraphView)
   private
+    FDefaultLinkDrawStyle: TLinkDrawStyle;
+    FLinkRouter: TNodeLinkRouter;
     FNodes: TNodeDAG;
     FLinks: TNodeLinkList;
     FRegistry: TNodeRegistry;
@@ -68,6 +73,10 @@ type
 
     function HasLinksBetweenNodes(ANodeA, ANodeB: TCustomNode): boolean;
     class function CompareNodeById(const A, B: TCustomNode): integer; static;
+
+    function GetDefaultLinkDrawStyle: TLinkDrawStyle;
+    function GetNodeCount: integer;
+    function GetNode(AIndex: integer): TCustomNode;
   public
     constructor Create;
     destructor Destroy; override;
@@ -82,7 +91,6 @@ type
     procedure RemoveLink(ALink: TNodeLink);
 
     function CheckInvariants(AErrors: TStrings = nil): boolean;
-    //procedure NormalizeGraph;
     function IsNodeIdUnique(const AId: string; AExcept: TCustomNode = nil): boolean;
     function IsPinIdUnique(const AId: string; AExcept: TNodePin = nil): boolean;
 
@@ -123,6 +131,9 @@ type
     property Nodes: TNodeDAG read FNodes;
     property Links: TNodeLinkList read FLinks;
     property Registry: TNodeRegistry read FRegistry;
+    property DefaultLinkDrawStyle: TLinkDrawStyle
+      read FDefaultLinkDrawStyle write FDefaultLinkDrawStyle;
+    property LinkRouter: TNodeLinkRouter read FLinkRouter;
     property OnNodeAdded: TGraphNodeEvent read FOnNodeAdded write FOnNodeAdded;
     property OnNodeRemoved: TGraphNodeEvent read FOnNodeRemoved write FOnNodeRemoved;
     property OnLinkAdded: TGraphLinkEvent read FOnLinkAdded write FOnLinkAdded;
@@ -385,6 +396,9 @@ begin
   FUndoStack := TGraphCommandList.Create(True);
   FRedoStack := TGraphCommandList.Create(True);
 
+  FDefaultLinkDrawStyle := ldsBezier;
+  FLinkRouter := TNodeLinkRouter.Create(Self);
+
   FRegistry.RegisterNodeEx('default', 'Default Node', 'Basic',
     'Generic test node.', 'default,test', TDefaultNode);
 
@@ -408,6 +422,7 @@ begin
   FUndoStack.Free;
   FRedoStack.Free;
   FRegistry.Free;
+  FLinkRouter.Free;
   FLinks.Free;
   FNodes.Free;
   inherited Destroy;
@@ -640,6 +655,21 @@ begin
   if B = nil then
     Exit(1);
   Result := CompareText(A.Id, B.Id);
+end;
+
+function TNodeGraph.GetDefaultLinkDrawStyle: TLinkDrawStyle;
+begin
+  Result := FDefaultLinkDrawStyle;
+end;
+
+function TNodeGraph.GetNodeCount: integer;
+begin
+  Result := FNodes.Count;
+end;
+
+function TNodeGraph.GetNode(AIndex: integer): TCustomNode;
+begin
+  Result := FNodes[AIndex];
 end;
 
 function TNodeGraph.CheckInvariants(AErrors: TStrings): boolean;
