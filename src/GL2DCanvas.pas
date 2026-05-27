@@ -34,6 +34,7 @@ uses
 const
   TEXT_CACHE_MAX = 1024;
   TEXT_CACHE_MAX_AGE = 300;
+  MAX_IMG_CACHE_SIZE = 64 * 1024 * 1024; // 64 MB limit for image textures
 
 type
   TGL2DCanvas = class;
@@ -79,6 +80,12 @@ type
     Width: integer;
     Height: integer;
     LastUsedFrame: int64;
+  end;
+
+  TImgTexInfo = record
+    ImgPtr: Pointer;   // Pointer to the TFPCustomImage
+    LastUsed: Int64;   // Frame number for LRU
+    Size: Int64;       // Size in bytes
   end;
 
   { TGLCanvasControl }
@@ -138,15 +145,26 @@ type
     FGLInitialized: boolean;
     FDrawing: boolean;
 
-    FTextureList: TFPList;
-    FTextureCache: TFPList;
-    FImagePointers: TFPList;
-
     FTextCache: TTextCache;
     FCurrentFrame: int64;
 
+    FImgCache: specialize TDictionary<Pointer, GLuint>;
+    FImgCacheInfo: specialize TDictionary<GLuint, TImgTexInfo>;
+    FImgCacheTotalSize: Int64;
+
     FVBOCapacity: integer;
     FCurrentTexture: GLuint;
+
+    FCurrentPrimitiveKind: TPrimitiveKind;
+    FLastPenColor: TColor;
+    FLastPenWidth: Integer;
+    FLastPenStyle: TPenStyle;
+    FLastBrushColor: TColor;
+    FLastBrushStyle: TBrushStyle;
+    FLastFontName: String;
+    FLastFontSize: Integer;
+    FLastFontColor: TColor;
+    FLastFontStyle: TFontStyles;
 
     procedure PenChanged(Sender: TObject);
     procedure BrushChanged(Sender: TObject);
@@ -156,6 +174,8 @@ type
     procedure LoadShaders;
     procedure CreateBuffers;
     procedure DestroyGLResources;
+    procedure ClearTextureCache;
+    procedure EvictLRUImageTextures(RequiredSpace: Int64);
     function  MakeTextCacheKey(const AText: string): string;
 
     procedure SetProjection;
@@ -193,7 +213,6 @@ type
 
     procedure AddTexturedQuad(const X1, Y1, X2, Y2: single;
       const U1, V1, U2, V2: single; ATexID: GLuint; const AColor: TVec4);
-
 
     function GetTexture(AImage: TFPCustomImage): GLuint;
 
@@ -350,7 +369,7 @@ const
     'in vec4 vData0;'#10 +
     'in vec4 vColor;'#10 +
     'flat in int vKind;'#10 +
-    'uniform sampler2D uTex;'#10 +          // unified texture support
+    'uniform sampler2D uTex;'#10 +
     'out vec4 FragColor;'#10 +
     'float sdSegment(vec2 p, vec2 a, vec2 b) {'#10 + '  vec2 pa = p - a;'#10 +
     '  vec2 ba = b - a;'#10 +
@@ -373,52 +392,52 @@ const
     '  float aa = 1.0;'#10 +
     '  float alpha = 1.0;'#10 +
     '  float dist;'#10 +
-    '  if (vKind == 8) {'#10 +                 // texture (unified)
+    '  if (vKind == 8) {'#10 +
     '    vec4 texColor = texture(uTex, vLocal);'#10 +
     '    FragColor = texColor * vColor;'#10 +
     '    if (FragColor.a <= 0.001) discard;'#10 +
     '    return;'#10 +
     '  }'#10 +
-    '  if (vKind == 0) {'#10 +                 // solid
+    '  if (vKind == 0) {'#10 +
     '    FragColor = vColor;'#10 +
     '    return;'#10 +
     '  }'#10 +
-    '  if (vKind == 1) {'#10 +                 // line
+    '  if (vKind == 1) {'#10 +
     '    vec2 a = vec2(0.0, 0.0);'#10 +
     '    vec2 b = vData0.xy;'#10 +
     '    float halfW = vData0.z;'#10 +
     '    dist = sdSegment(vLocal, a, b) - halfW;'#10 +
     '    alpha = 1.0 - smoothstep(-aa, aa, dist);'#10 +
     '  }'#10 +
-    '  else if (vKind == 2) {'#10 +           // rect fill
+    '  else if (vKind == 2) {'#10 +
     '    vec2 halfSize = vData0.xy;'#10 +
     '    dist = sdBox(vLocal, halfSize);'#10 +
     '    alpha = 1.0 - smoothstep(-aa, aa, dist);'#10 +
     '  }'#10 +
-    '  else if (vKind == 3) {'#10 +           // rect stroke
+    '  else if (vKind == 3) {'#10 +
     '    vec2 halfSize = vData0.xy;'#10 +
     '    float halfW = vData0.z;'#10 +
     '    float d = abs(sdBox(vLocal, halfSize)) - halfW;'#10 +
     '    alpha = 1.0 - smoothstep(-aa, aa, d);'#10 +
     '  }'#10 +
-    '  else if (vKind == 4) {'#10 +           // ellipse fill
+    '  else if (vKind == 4) {'#10 +
     '    vec2 radius = vData0.xy;'#10 +
     '    dist = sdEllipse(vLocal, radius);'#10 +
     '    alpha = 1.0 - smoothstep(-aa, aa, dist);'#10 +
     '  }'#10 +
-    '  else if (vKind == 5) {'#10 +           // ellipse stroke
+    '  else if (vKind == 5) {'#10 +
     '    vec2 radius = vData0.xy;'#10 +
     '    float halfW = vData0.z;'#10 +
     '    float d = abs(sdEllipse(vLocal, radius)) - halfW;'#10 +
     '    alpha = 1.0 - smoothstep(-aa, aa, d);'#10 +
     '  }'#10 +
-    '  else if (vKind == 6) {'#10 +           // roundrect fill
+    '  else if (vKind == 6) {'#10 +
     '    vec2 halfSize = vData0.xy;'#10 +
     '    float radius = vData0.z;'#10 +
     '    dist = sdRoundedBox(vLocal, halfSize, radius);'#10 +
     '    alpha = 1.0 - smoothstep(-aa, aa, dist);'#10 +
     '  }'#10 +
-    '  else if (vKind == 7) {'#10 +           // roundrect stroke
+    '  else if (vKind == 7) {'#10 +
     '    vec2 halfSize = vData0.xy;'#10 +
     '    float radius = vData0.z;'#10 +
     '    float halfW  = vData0.w;'#10 +
@@ -671,7 +690,7 @@ begin
   FLazFont.Size := 12;
   FLazFont.OnChange := @FontChanged;
 
-  SetLength(FVertices, 8192);
+  SetLength(FVertices, 32768);
   FVertexCount := 0;
 
   FCurrentX := 0;
@@ -686,13 +705,26 @@ begin
   FGLInitialized := False;
   FDrawing := False;
 
-  FTextureList := TFPList.Create;
-  FTextureCache := TFPList.Create;
-  FImagePointers := TFPList.Create;
   FTextCache := TTextCache.Create(TEXT_CACHE_MAX);
+
+  FImgCache := specialize TDictionary<Pointer, GLuint>.Create;
+  FImgCacheInfo := specialize TDictionary<GLuint, TImgTexInfo>.Create;
+  FImgCacheTotalSize := 0;
+  FCurrentFrame := 0;
 
   FCurrentTexture := 0;
   FVBOCapacity := 0;
+
+  FCurrentPrimitiveKind := pkSolid;
+  FLastPenColor := clBlack;
+  FLastPenWidth := 1;
+  FLastPenStyle := psSolid;
+  FLastBrushColor := clWhite;
+  FLastBrushStyle := bsSolid;
+  FLastFontName := 'default';
+  FLastFontSize := 12;
+  FLastFontColor := clBlack;
+  FLastFontStyle := [];
 end;
 
 constructor TGL2DCanvas.Create(AControl: TOpenGLControl);
@@ -725,9 +757,9 @@ begin
     end;
   end;
 
-  FreeAndNil(FTextureList);
-  FreeAndNil(FTextureCache);
-  FreeAndNil(FImagePointers);
+  ClearTextureCache;
+  FreeAndNil(FImgCacheInfo);
+  FreeAndNil(FImgCache);
   FreeAndNil(FTextCache);
 
   FLazFont := nil;
@@ -739,20 +771,23 @@ end;
 
 procedure TGL2DCanvas.PenChanged(Sender: TObject);
 begin
-  if FDrawing then
-    Flush;
+  FLastPenColor := FLazPen.Color;
+  FLastPenWidth := FLazPen.Width;
+  FLastPenStyle := FLazPen.Style;
 end;
 
 procedure TGL2DCanvas.BrushChanged(Sender: TObject);
 begin
-  if FDrawing then
-    Flush;
+  FLastBrushColor := FLazBrush.Color;
+  FLastBrushStyle := FLazBrush.Style;
 end;
 
 procedure TGL2DCanvas.FontChanged(Sender: TObject);
 begin
-  if FDrawing then
-    Flush;
+  FLastFontName := FLazFont.Name;
+  FLastFontSize := FLazFont.Size;
+  FLastFontColor := FLazFont.Color;
+  FLastFontStyle := FLazFont.Style;
 end;
 
 function TGL2DCanvas.DoCreateDefaultFont: TFPCustomFont;
@@ -976,7 +1011,8 @@ end;
 
 procedure TGL2DCanvas.DestroyGLResources;
 var
-  I: Integer;
+  TexID: GLuint;
+  Info: TImgTexInfo;
   Pair: specialize TPair<string, TTextCacheEntry>;
 begin
   if FVAO <> 0 then
@@ -995,20 +1031,64 @@ begin
     FProgram := 0;
   end;
 
-  for I := 0 to FTextureList.Count - 1 do
-    if PGLuint(FTextureList[I]) <> nil then
-      glDeleteTextures(1, PGLuint(FTextureList[I]));
-
-  for Pair in FTextCache do
-    glDeleteTextures(1, @Pair.Value.TexID);
-
-  FTextCache.Clear;
-
-  FTextureList.Clear;
-  FTextureCache.Clear;
-  FImagePointers.Clear;
-
+  ClearTextureCache;
   FGLInitialized := False;
+end;
+
+procedure TGL2DCanvas.ClearTextureCache;
+var
+  TexID: GLuint;
+  Pair: specialize TPair<string, TTextCacheEntry>;
+begin
+  if Assigned(FImgCacheInfo) then
+  begin
+    for TexID in FImgCacheInfo.Keys do
+      glDeleteTextures(1, @TexID);
+    FImgCacheInfo.Clear;
+  end;
+  if Assigned(FImgCache) then
+    FImgCache.Clear;
+  FImgCacheTotalSize := 0;
+
+  if Assigned(FTextCache) then
+  begin
+    for Pair in FTextCache do
+      glDeleteTextures(1, @Pair.Value.TexID);
+    FTextCache.Clear;
+  end;
+end;
+
+procedure TGL2DCanvas.EvictLRUImageTextures(RequiredSpace: Int64);
+var
+  MinFrame: Int64;
+  LRUKey: GLuint;
+  LRUInfo: TImgTexInfo;
+  Pair: specialize TPair<GLuint, TImgTexInfo>;
+begin
+  while (FImgCacheTotalSize + RequiredSpace > MAX_IMG_CACHE_SIZE) and (FImgCacheInfo.Count > 0) do
+  begin
+    MinFrame := High(Int64);
+    LRUKey := 0;
+
+    for Pair in FImgCacheInfo do
+    begin
+      if Pair.Value.LastUsed < MinFrame then
+      begin
+        MinFrame := Pair.Value.LastUsed;
+        LRUKey := Pair.Key;
+        LRUInfo := Pair.Value;
+      end;
+    end;
+
+    if LRUKey = 0 then Break;
+
+    FImgCache.Remove(LRUInfo.ImgPtr);
+    FImgCacheInfo.Remove(LRUKey);
+
+    glDeleteTextures(1, @LRUKey);
+
+    Dec(FImgCacheTotalSize, LRUInfo.Size);
+  end;
 end;
 
 function TGL2DCanvas.MakeTextCacheKey(const AText: string): string;
@@ -1063,7 +1143,7 @@ begin
   if Required <= Length(FVertices) then Exit;
 
   NewCap := Length(FVertices);
-  if NewCap < 1024 then NewCap := 1024;
+  if NewCap = 0 then NewCap := 32768;
   while NewCap < Required do
     NewCap := NewCap * 2;
 
@@ -1124,8 +1204,7 @@ end;
 procedure TGL2DCanvas.AddVertex(const APos, ALocal: TVec2; const AData0, AColor: TVec4;
   AKind: TPrimitiveKind);
 begin
-  if FVertexCount + 1 > Length(FVertices) then
-    SetLength(FVertices, Length(FVertices) + 8192);
+  EnsureVertexCapacity(1);
 
   FVertices[FVertexCount].Position := APos;
   FVertices[FVertexCount].Local := ALocal;
@@ -1137,12 +1216,6 @@ end;
 
 procedure TGL2DCanvas.AddTriangle(const A, B, C: TAAColorVertex);
 begin
-  if (A.Kind <> Ord(pkTexture)) and (FCurrentTexture <> 0) then
-  begin
-    Flush;
-    FCurrentTexture := 0;
-  end;
-
   EnsureVertexCapacity(3);
   FVertices[FVertexCount]     := A;
   FVertices[FVertexCount + 1] := B;
@@ -1183,20 +1256,15 @@ begin
   D.X := 0; D.Y := 0; D.Z := 0; D.W := 0;
   L.X := 0; L.Y := 0;
 
-  // Vertices: BL, BR, TR, TL (Counter Clockwise)
-  // 0: BL (X1, Y2), 1: BR (X2, Y2), 2: TR (X2, Y1), 3: TL (X1, Y1)
-
   if ADirection = gdVertical then
   begin
-    // Top C1, Bottom C2
     P.X := X1; P.Y := Y2; V0.Position := P; V0.Local := L; V0.Data0 := D; V0.Color := C2; V0.Kind := Ord(pkSolid);
     P.X := X2; P.Y := Y2; V1.Position := P; V1.Local := L; V1.Data0 := D; V1.Color := C2; V1.Kind := Ord(pkSolid);
     P.X := X2; P.Y := Y1; V2.Position := P; V2.Local := L; V2.Data0 := D; V2.Color := C1; V2.Kind := Ord(pkSolid);
     P.X := X1; P.Y := Y1; V3.Position := P; V3.Local := L; V3.Data0 := D; V3.Color := C1; V3.Kind := Ord(pkSolid);
   end
-  else // gdHorizontal
+  else
   begin
-    // Left C1, Right C2
     P.X := X1; P.Y := Y2; V0.Position := P; V0.Local := L; V0.Data0 := D; V0.Color := C1; V0.Kind := Ord(pkSolid);
     P.X := X2; P.Y := Y2; V1.Position := P; V1.Local := L; V1.Data0 := D; V1.Color := C2; V1.Kind := Ord(pkSolid);
     P.X := X2; P.Y := Y1; V2.Position := P; V2.Local := L; V2.Data0 := D; V2.Color := C2; V2.Kind := Ord(pkSolid);
@@ -1411,7 +1479,6 @@ begin
   HX := Abs(X2 - X1) * 0.5;
   HY := Abs(Y2 - Y1) * 0.5;
 
-  // Clamp radius
   RX := Min(ARadiusX, HX);
   RY := Min(ARadiusY, HY);
 
@@ -1427,7 +1494,6 @@ begin
   L2.X := HX + Pad; L2.Y := HY + Pad;
   L3.X := -HX - Pad; L3.Y := HY + Pad;
 
-  // Pass radius in Z
   D.X := HX; D.Y := HY; D.Z := RX; D.W := 0;
 
   V0.Position := P0; V0.Local := L0; V0.Data0 := D; V0.Color := AColor; V0.Kind := Ord(pkRoundRectFill);
@@ -1453,7 +1519,6 @@ begin
   HY := Abs(Y2 - Y1) * 0.5;
   HalfW := Max(0.5, AStrokeWidth * 0.5);
 
-  // Clamp radius
   RX := Min(ARadiusX, HX);
   RY := Min(ARadiusY, HY);
 
@@ -1469,7 +1534,6 @@ begin
   L2.X := HX + Pad; L2.Y := HY + Pad;
   L3.X := -HX - Pad; L3.Y := HY + Pad;
 
-  // Z = Radius, W = HalfWidth
   D.X := HX; D.Y := HY; D.Z := RX; D.W := HalfW;
 
   V0.Position := P0; V0.Local := L0; V0.Data0 := D; V0.Color := AColor; V0.Kind := Ord(pkRoundRectStroke);
@@ -1542,25 +1606,43 @@ end;
 
 function TGL2DCanvas.GetTexture(AImage: TFPCustomImage): GLuint;
 var
-  i: Integer;
+  TexID: GLuint;
+  ImgPtr: Pointer;
+  Info: TImgTexInfo;
+  ImgSize: Int64;
 begin
   Result := 0;
   if AImage = nil then Exit;
 
-  for i := 0 to FImagePointers.Count - 1 do
-    if FImagePointers[i] = Pointer(AImage) then
+  ImgPtr := Pointer(AImage);
+
+  if FImgCache.TryGetValue(ImgPtr, Result) then
+  begin
+    if FImgCacheInfo.TryGetValue(Result, Info) then
     begin
-      Result := GLuint(PtrUInt(FTextureCache[i]));
-      Exit;
+      Info.LastUsed := FCurrentFrame;
+      FImgCacheInfo[result] := Info;
     end;
+    Exit;
+  end;
 
   EnsureGLReady;
   Result := CreateTextureFromImage(AImage);
+
   if Result <> 0 then
   begin
-    FTextureList.Add(TObject(PtrUInt(Result)));
-    FTextureCache.Add(TObject(PtrUInt(Result)));
-    FImagePointers.Add(Pointer(AImage));
+    ImgSize := AImage.Width * AImage.Height * 4;
+
+    EvictLRUImageTextures(ImgSize);
+
+    FImgCache.Add(ImgPtr, Result);
+
+    Info.ImgPtr := ImgPtr;
+    Info.LastUsed := FCurrentFrame;
+    Info.Size := ImgSize;
+
+    FImgCacheInfo.Add(Result, Info);
+    Inc(FImgCacheTotalSize, ImgSize);
   end;
 end;
 
@@ -1588,6 +1670,8 @@ begin
   FVertexCount := 0;
   FCurrentTexture := 0;
   FDrawing := True;
+
+  Inc(FCurrentFrame);
 end;
 
 procedure TGL2DCanvas.EndDraw;
@@ -1910,9 +1994,8 @@ begin
 
   FControl.MakeCurrent;
   EnsureGLReady;
-  Flush; // ensure previous geometry is flushed
+  Flush;
 
-  Inc(FCurrentFrame);
   Key := MakeTextCacheKey(Text);
 
   Found := FTextCache.TryGetValue(Key, Entry);
@@ -2108,8 +2191,7 @@ begin
   StartAngle := Deg16ToRad(StartAngle16Deg);
   EndAngle := Deg16ToRad(StartAngle16Deg + Angle16DegLength);
 
-  // Approximate curve
-  Steps := Max(5, Ceil(Abs(EndAngle - StartAngle) * 20)); // Adaptive steps
+  Steps := Max(5, Ceil(Abs(EndAngle - StartAngle) * 20));
   if Steps > 100 then Steps := 100;
 
   C := ColorToVec4(FLazBrush.Color);
@@ -2164,8 +2246,6 @@ begin
   begin
     if Continuous then
     begin
-      // Standard PolyBezier: P0 is start, P1,P2 controls, P3 is end (and next start)
-      // NumPts must be 1 + 3n
       if i + 3 >= NumPts then Break;
       p0 := Points[i];
       p1 := Points[i + 1];
@@ -2175,7 +2255,6 @@ begin
     end
     else
     begin
-      // Discrete segments (4 points per curve)
       if i + 3 >= NumPts then Break;
       p0 := Points[i];
       p1 := Points[i + 1];
@@ -2184,16 +2263,13 @@ begin
       Inc(i, 4);
     end;
 
-    // Add first point
     if Count = 0 then AddBezierPoint(p0);
 
-    // Subdivide
     Steps := 20;
     dt := 1.0 / Steps;
     for j := 1 to Steps do
     begin
       t := j * dt;
-      // Cubic Bezier formula
       x := Power(1 - t, 3) * p0.X + 3 * Power(1 - t, 2) * t * p1.X +
         3 * (1 - t) * t * t * p2.X + t * t * t * p3.X;
       y := Power(1 - t, 3) * p0.Y + 3 * Power(1 - t, 2) * t * p1.Y +
