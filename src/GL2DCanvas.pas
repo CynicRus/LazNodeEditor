@@ -129,8 +129,8 @@ type
   public
     constructor Create(AOwner: TComponent); override;
     destructor Destroy; override;
-property Canvas: TGL2DCanvas read FCanvas;
-property OnDraw: TNotifyEvent read FOnDraw write FOnDraw;
+    property Canvas: TGL2DCanvas read FCanvas;
+    property OnDraw: TNotifyEvent read FOnDraw write FOnDraw;
 
   published
     property Align;
@@ -148,279 +148,277 @@ property OnDraw: TNotifyEvent read FOnDraw write FOnDraw;
     FControl: TOpenGLControl;
     FWidth: integer;
     FHeight: integer;
-FClipRect: TRect;
-FClipping: boolean;
+    FClipRect: TRect;
+    FClipping: boolean;
 
-FProgram: GLuint;
-FVAO: GLuint;
-FVBO: GLuint;
+    FProgram: GLuint;
+    FVAO: GLuint;
+    FVBO: GLuint;
 
-FVertices: array of TAAColorVertex;
-FVertexCount: integer;
+    FVertices: array of TAAColorVertex;
+    FVertexCount: integer;
 
-FUniformProjection: GLint;
-FUniformTex: GLint;
-FUniformPenStyle: GLint;
-FUniformDashParams: GLint;
-FUniformBrushStyle: GLint;
+    FUniformProjection: GLint;
+    FUniformTex: GLint;
+    FUniformPenStyle: GLint;
+    FUniformDashParams: GLint;
+    FUniformBrushStyle: GLint;
 
-FLazPen: TPen;
-FLazBrush: TBrush;
-FLazFont: TFont;
+    FLazPen: TPen;
+    FLazBrush: TBrush;
+    FLazFont: TFont;
 
-FCurrentX: integer;
-FCurrentY: integer;
+    FCurrentX: integer;
+    FCurrentY: integer;
 
-FGLInitialized: boolean;
-FDrawing: boolean;
+    FGLInitialized: boolean;
+    FDrawing: boolean;
 
-FTextCache: TTextCache;
-FCurrentFrame: int64;
+    FTextCache: TTextCache;
+    FCurrentFrame: int64;
 
-FImgCache: specialize TDictionary<Pointer, GLuint>;
-FImgCacheInfo: specialize TDictionary<GLuint, TImgTexInfo>;
-FImgCacheTotalSize: int64;
+    FImgCache: specialize TDictionary<Pointer, GLuint>;
+    FImgCacheInfo: specialize TDictionary<GLuint, TImgTexInfo>;
+    FImgCacheTotalSize: int64;
 
-FVBOCapacity: integer;
-FCurrentTexture: GLuint;
+    FVBOCapacity: integer;
+    FCurrentTexture: GLuint;
 
-FCurrentPrimitiveKind: TPrimitiveKind;
-FLastPenColor: TColor;
-FLastPenWidth: integer;
-FLastPenStyle: TPenStyle;
-FLastBrushColor: TColor;
-FLastBrushStyle: TBrushStyle;
-FLastFontName: string;
-FLastFontSize: integer;
-FLastFontColor: TColor;
-FLastFontStyle: TFontStyles;
+    FCurrentPrimitiveKind: TPrimitiveKind;
+    FLastPenColor: TColor;
+    FLastPenWidth: integer;
+    FLastPenStyle: TPenStyle;
+    FLastBrushColor: TColor;
+    FLastBrushStyle: TBrushStyle;
+    FLastFontName: string;
+    FLastFontSize: integer;
+    FLastFontColor: TColor;
+    FLastFontStyle: TFontStyles;
 
-FAppliedPenStyle: TPenStyle;
-FAppliedBrushStyle: TBrushStyle;
+    FAppliedPenStyle: TPenStyle;
+    FAppliedBrushStyle: TBrushStyle;
 
-FGlyphCache: TGlyphCache;
-FAtlasTex: GLuint;
-FAtlasWidth, FAtlasHeight: integer;
-FAtlasX, FAtlasY: integer;
-FAtlasRowHeight: integer;
-FAtlasData: TBytes;
+    FGlyphCache: TGlyphCache;
+    FAtlasTex: GLuint;
+    FAtlasWidth, FAtlasHeight: integer;
+    FAtlasX, FAtlasY: integer;
+    FAtlasRowHeight: integer;
+    FAtlasData: TBytes;
 
-procedure PenChanged(Sender: TObject);
-procedure BrushChanged(Sender: TObject);
-procedure FontChanged(Sender: TObject);
+    procedure PenChanged(Sender: TObject);
+    procedure BrushChanged(Sender: TObject);
+    procedure FontChanged(Sender: TObject);
 
-procedure EnsureGLReady;
-procedure LoadShaders;
-procedure CreateBuffers;
-procedure DestroyGLResources;
-procedure ClearTextureCache;
-procedure EvictLRUImageTextures(RequiredSpace: int64);
-function MakeTextCacheKey(const AText: string): string;
-function MakeGlyphKey(AChar: UCS4Char): TGlyphKey;
+    procedure EnsureGLReady;
+    procedure LoadShaders;
+    procedure CreateBuffers;
+    procedure DestroyGLResources;
+    procedure ClearTextureCache;
+    procedure EvictLRUImageTextures(RequiredSpace: int64);
+    function MakeTextCacheKey(const AText: string): string;
+    function MakeGlyphKey(AChar: UCS4Char): TGlyphKey;
 
-procedure SetProjection;
-procedure ApplyScissor;
-procedure EnsureVertexCapacity(AExtra: integer);
-procedure Flush;
+    procedure SetProjection;
+    procedure ApplyScissor;
+    procedure EnsureVertexCapacity(AExtra: integer);
+    procedure Flush;
 
-procedure SetActiveTexture(ATexID: GLuint);
+    procedure SetActiveTexture(ATexID: GLuint);
 
-function ColorToVec4(const AColor: TColor; AAlpha: single = 1.0): TVec4;
-function AdjustColor(const AColor: TColor; AFactor: integer): TColor;
-function NormalizeRect(const R: TRect): TRect;
+    function ColorToVec4(const AColor: TColor; AAlpha: single = 1.0): TVec4;
+    function AdjustColor(const AColor: TColor; AFactor: integer): TColor;
+    function NormalizeRect(const R: TRect): TRect;
 
-procedure AddVertex(const APos, ALocal: TVec2; const AData0, AColor: TVec4;
-  AKind: TPrimitiveKind);
+    procedure AddVertex(const APos, ALocal: TVec2; const AData0, AColor: TVec4;
+      AKind: TPrimitiveKind);
 
-procedure AddTriangle(const A, B, C: TAAColorVertex);
-procedure AddQuad(const A, B, C, D: TAAColorVertex);
+    procedure AddTriangle(const A, B, C: TAAColorVertex);
+    procedure AddQuad(const A, B, C, D: TAAColorVertex);
 
-procedure AddSolidRect(const X1, Y1, X2, Y2: single; const AColor: TVec4);
-procedure AddGradientRect(const X1, Y1, X2, Y2: single; const C1, C2: TVec4;
-  ADirection: TGradientDirection);
-procedure AddAALine(const X1, Y1, X2, Y2: single; const AWidth: single;
-  const AColor: TVec4);
-procedure AddAARectFill(const X1, Y1, X2, Y2: single; const AColor: TVec4);
-procedure AddAARectStroke(const X1, Y1, X2, Y2, AStrokeWidth: single;
-  const AColor: TVec4);
-procedure AddAAEllipseFill(const X1, Y1, X2, Y2: single; const AColor: TVec4);
-procedure AddAAEllipseStroke(const X1, Y1, X2, Y2, AStrokeWidth: single;
-  const AColor: TVec4);
-procedure AddAARoundRectFill(const X1, Y1, X2, Y2, ARadiusX, ARadiusY: single;
-  const AColor: TVec4);
-procedure AddAARoundRectStroke(const X1, Y1, X2, Y2, ARadiusX,
-  ARadiusY, AStrokeWidth: single; const AColor: TVec4);
+    procedure AddSolidRect(const X1, Y1, X2, Y2: single; const AColor: TVec4);
+    procedure AddGradientRect(const X1, Y1, X2, Y2: single; const C1, C2: TVec4;
+      ADirection: TGradientDirection);
+    procedure AddAALine(const X1, Y1, X2, Y2: single; const AWidth: single;
+      const AColor: TVec4);
+    procedure AddAARectFill(const X1, Y1, X2, Y2: single; const AColor: TVec4);
+    procedure AddAARectStroke(const X1, Y1, X2, Y2, AStrokeWidth: single;
+      const AColor: TVec4);
+    procedure AddAAEllipseFill(const X1, Y1, X2, Y2: single; const AColor: TVec4);
+    procedure AddAAEllipseStroke(const X1, Y1, X2, Y2, AStrokeWidth: single;
+      const AColor: TVec4);
+    procedure AddAARoundRectFill(const X1, Y1, X2, Y2, ARadiusX, ARadiusY: single;
+      const AColor: TVec4);
+    procedure AddAARoundRectStroke(
+      const X1, Y1, X2, Y2, ARadiusX, ARadiusY, AStrokeWidth: single; const AColor: TVec4);
 
-procedure AddTexturedQuad(const X1, Y1, X2, Y2: single;
-  const U1, V1, U2, V2: single; ATexID: GLuint; const AColor: TVec4);
+    procedure AddTexturedQuad(const X1, Y1, X2, Y2: single;
+      const U1, V1, U2, V2: single; ATexID: GLuint; const AColor: TVec4);
 
-function GetTexture(AImage: TFPCustomImage): GLuint;
+    function GetTexture(AImage: TFPCustomImage): GLuint;
 
-function Angle16ToRad(AAngle16: integer): single;
-function PointOnEllipse(const R: TRect; AAngleRad: single): TPoint;
-procedure BuildArcPolyline(const R: TRect; AStartRad, ASweepRad: single;
-  out Points: array of TPoint; out ACount: integer);
-procedure DrawArcInternal(const R: TRect; AStartRad, ASweepRad: single;
-  UpdatePenPos: boolean);
-procedure DrawPieInternal(const R: TRect; AStartRad, ASweepRad: single);
-procedure DrawChordInternal(const R: TRect; AStartRad, ASweepRad: single);
-function GraphicToImage(ASrc: TGraphic): TFPCustomImage;
-function PointToEllipseAngle(const R: TRect; PX, PY: integer): single;
-{$IFDEF MSWINDOWS}
-function CreateTextTexture_Windows(const Text: ansistring;
-  out W, H: integer): GLuint;
-{$ELSE}
+    function Angle16ToRad(AAngle16: integer): single;
+    function PointOnEllipse(const R: TRect; AAngleRad: single): TPoint;
+    procedure BuildArcPolyline(const R: TRect; AStartRad, ASweepRad: single;
+      out Points: array of TPoint; out ACount: integer);
+    procedure DrawArcInternal(const R: TRect; AStartRad, ASweepRad: single;
+      UpdatePenPos: boolean);
+    procedure DrawPieInternal(const R: TRect; AStartRad, ASweepRad: single);
+    procedure DrawChordInternal(const R: TRect; AStartRad, ASweepRad: single);
+    function GraphicToImage(ASrc: TGraphic): TFPCustomImage;
+    function PointToEllipseAngle(const R: TRect; PX, PY: integer): single;
+    {$IFDEF MSWINDOWS}
+    function CreateTextTexture_Windows(const Text: ansistring; out W, H: integer): GLuint;
+    {$ELSE}
 function CreateTextTexture_Linux(const Text: ansistring; out W, H: Integer): GLuint;
-{$ENDIF}
-function CreateTextureFromRGBA(const Buf: Pointer; W, H: integer): GLuint;
+    {$ENDIF}
+    function CreateTextureFromRGBA(const Buf: Pointer; W, H: integer): GLuint;
 
-procedure InitAtlas;
-procedure ResetAtlas;
-function GetGlyphInfo(AChar: UCS4Char): TGlyphInfo;
+    procedure InitAtlas;
+    procedure ResetAtlas;
+    function GetGlyphInfo(AChar: UCS4Char): TGlyphInfo;
 
-procedure ApplyPenStyle;
-procedure ApplyBrushStyle;
+    procedure ApplyPenStyle;
+    procedure ApplyBrushStyle;
 
   protected
     function DoCreateDefaultFont: TFPCustomFont; override;
     function DoCreateDefaultPen: TFPCustomPen; override;
     function DoCreateDefaultBrush: TFPCustomBrush; override;
-procedure SetColor(x, y: integer; const Value: TFPColor); override;
-function GetColor(x, y: integer): TFPColor; override;
+    procedure SetColor(x, y: integer; const Value: TFPColor); override;
+    function GetColor(x, y: integer): TFPColor; override;
 
-procedure SetHeight(AValue: integer); override;
-function GetHeight: integer; override;
-procedure SetWidth(AValue: integer); override;
-function GetWidth: integer; override;
+    procedure SetHeight(AValue: integer); override;
+    function GetHeight: integer; override;
+    procedure SetWidth(AValue: integer); override;
+    function GetWidth: integer; override;
 
-procedure DoLine(x1, y1, x2, y2: integer); override;
-procedure DoMoveTo(X, Y: integer); override;
-procedure DoPolyline(const points: array of TPoint); override;
-procedure DoPolygon(const points: array of TPoint); override;
-procedure DoPolygonFill(const points: array of TPoint); override;
-procedure DoRectangle(const Bounds: TRect); override;
-procedure DoRectangleFill(const Bounds: TRect); override;
-procedure DoEllipse(const Bounds: TRect); override;
-procedure DoEllipseFill(const Bounds: TRect); override;
+    procedure DoLine(x1, y1, x2, y2: integer); override;
+    procedure DoMoveTo(X, Y: integer); override;
+    procedure DoPolyline(const points: array of TPoint); override;
+    procedure DoPolygon(const points: array of TPoint); override;
+    procedure DoPolygonFill(const points: array of TPoint); override;
+    procedure DoRectangle(const Bounds: TRect); override;
+    procedure DoRectangleFill(const Bounds: TRect); override;
+    procedure DoEllipse(const Bounds: TRect); override;
+    procedure DoEllipseFill(const Bounds: TRect); override;
 
-procedure DoTextOut(x, y: integer; Text: ansistring); override;
-procedure DoGetTextSize(Text: ansistring; var w, h: integer); override;
-function DoGetTextHeight(Text: ansistring): integer; override;
-function DoGetTextWidth(Text: ansistring): integer; override;
+    procedure DoTextOut(x, y: integer; Text: ansistring); override;
+    procedure DoGetTextSize(Text: ansistring; var w, h: integer); override;
+    function DoGetTextHeight(Text: ansistring): integer; override;
+    function DoGetTextWidth(Text: ansistring): integer; override;
 
-procedure DoFloodFill(x, y: integer); override;
-procedure DoCopyRect(x, y: integer; canvas: TFPCustomCanvas;
-  const SourceRect: TRect); override;
-procedure DoDraw(x, y: integer; const image: TFPCustomImage); override;
-procedure DoRadialPie(x1, y1, x2, y2, StartAngle16Deg,
-  Angle16DegLength: integer);
-  override;
-procedure DoPolyBezier(Points: PPoint; NumPts: integer;
-  Filled, Continuous: boolean); override;
+    procedure DoFloodFill(x, y: integer); override;
+    procedure DoCopyRect(x, y: integer; canvas: TFPCustomCanvas;
+      const SourceRect: TRect); override;
+    procedure DoDraw(x, y: integer; const image: TFPCustomImage); override;
+    procedure DoRadialPie(x1, y1, x2, y2, StartAngle16Deg, Angle16DegLength: integer);
+      override;
+    procedure DoPolyBezier(Points: PPoint; NumPts: integer;
+      Filled, Continuous: boolean); override;
 
-function GetClipRect: TRect; override;
-procedure SetClipRect(const AValue: TRect); override;
-function GetClipping: boolean; override;
-procedure SetClipping(const AValue: boolean); override;
+    function GetClipRect: TRect; override;
+    procedure SetClipRect(const AValue: TRect); override;
+    function GetClipping: boolean; override;
+    procedure SetClipping(const AValue: boolean); override;
 
   public
     constructor Create; overload;
     constructor Create(AControl: TOpenGLControl); overload;
     constructor CreateSize(AWidth, AHeight: integer); overload;
     destructor Destroy; override;
-procedure BeginDraw; virtual;
-procedure EndDraw; virtual;
+    procedure BeginDraw; virtual;
+    procedure EndDraw; virtual;
 
-procedure MoveTo(X, Y: integer);
-procedure LineTo(X, Y: integer);
+    procedure MoveTo(X, Y: integer);
+    procedure LineTo(X, Y: integer);
 
-procedure Arc(ALeft, ATop, ARight, ABottom, Angle16Deg, Angle16DegLength: integer);
-  virtual; {$IFDEF HasFPCanvas1}reintroduce;{$ENDIF}
-procedure Arc(ALeft, ATop, ARight, ABottom, SX, SY, EX, EY: integer);
-  virtual; {$IFDEF HasFPCanvas1}reintroduce;{$ENDIF}
-procedure ArcTo(ALeft, ATop, ARight, ABottom, SX, SY, EX, EY: integer); virtual;
-procedure AngleArc(X, Y: integer; Radius: longword; StartAngle, SweepAngle: single);
-procedure BrushCopy(ADestRect: TRect; ABitmap: TBitmap; ASourceRect: TRect;
-  ATransparentColor: TColor); virtual;
-procedure Chord(x1, y1, x2, y2, Angle16Deg, Angle16DegLength: integer);
-  virtual; {$IFDEF HasFPCanvas1}reintroduce;{$ENDIF}
-procedure Chord(x1, y1, x2, y2, SX, SY, EX, EY: integer); virtual;
-{$IFDEF HasFPCanvas1}reintroduce;{$ENDIF}
-procedure CopyRect(const Dest: TRect; SrcCanvas: TCanvas; const Source: TRect);
-  virtual; reintroduce;
-procedure Draw(X, Y: integer; SrcGraphic: TGraphic); virtual; reintroduce;
-procedure DrawFocusRect(const ARect: TRect); virtual;
-procedure StretchDraw(const DestRect: TRect; SrcGraphic: TGraphic);
-  virtual; reintroduce;
-procedure StretchDraw(x, y, w, h: integer; Source: TFPCustomImage); overload;
-procedure Ellipse(const ARect: TRect); overload;
-{$IFDEF HasFPCanvas1}reintroduce;{$ENDIF}
-procedure Ellipse(x1, y1, x2, y2: integer); overload; virtual;
-{$IFDEF HasFPCanvas1}reintroduce;{$ENDIF}
-procedure FillRect(const ARect: TRect); virtual;
-{$IFDEF HasFPCanvas1}reintroduce;{$ENDIF}
-procedure FillRect(X1, Y1, X2, Y2: integer); overload;
-{$IFDEF HasFPCanvas1}reintroduce;{$ENDIF}
-procedure FloodFill(X, Y: integer; FillColor: TColor; FillStyle: TFillStyle);
-  virtual; {$IFDEF HasFPCanvas1}reintroduce;{$ENDIF}
-procedure Frame3d(var ARect: TRect; const FrameWidth: integer;
-  const Style: TGraphicsBevelCut); virtual;
-procedure Frame3D(var ARect: TRect; TopColor, BottomColor: TColor;
-  const FrameWidth: integer); overload;
-procedure Frame(const ARect: TRect); overload; virtual;
-procedure Frame(X1, Y1, X2, Y2: integer); overload;
-procedure FrameRect(const ARect: TRect); overload; virtual;
-procedure FrameRect(X1, Y1, X2, Y2: integer); overload;
-function GetTextMetrics(out TM: TLCLTextMetric): boolean; virtual;
-procedure GradientFill(ARect: TRect; AStart, AStop: TColor;
-  ADirection: TGradientDirection); {$IFDEF HasFPCanvas1}reintroduce;{$ENDIF}
-procedure RadialPie(x1, y1, x2, y2, StartAngle16Deg, Angle16DegLength: integer);
-  virtual; {$IFDEF HasFPCanvas1}reintroduce;{$ENDIF}
-procedure Pie(EllipseX1, EllipseY1, EllipseX2, EllipseY2, StartX,
-  StartY, EndX, EndY: integer); virtual;
-procedure PolyBezier(Points: PPoint; NumPts: integer; Filled: boolean = False;
-  Continuous: boolean = True); virtual; {$IFDEF HasFPCanvas1}reintroduce;{$ENDIF}
-procedure PolyBezier(const Points: array of TPoint; Filled: boolean = False;
-  Continuous: boolean = True); overload; {$IFDEF HasFPCanvas1}reintroduce;{$ENDIF}
-procedure Polygon(const Points: array of TPoint; Winding: boolean;
-  StartIndex: integer = 0; NumPts: integer = -1); overload;
-procedure Polygon(Points: PPoint; NumPts: integer; Winding: boolean = False);
-  overload; virtual;
-procedure Polygon(const Points: array of TPoint); overload;
-{$IFDEF HasFPCanvas1}reintroduce;{$ENDIF}
-procedure Polyline(const Points: array of TPoint; StartIndex: integer;
-  NumPts: integer = -1); overload;
-procedure Polyline(Points: PPoint; NumPts: integer); overload; virtual;
-procedure Polyline(const Points: array of TPoint); overload;
-{$IFDEF HasFPCanvas1}reintroduce;{$ENDIF}
-procedure Rectangle(X1, Y1, X2, Y2: integer); overload; virtual;
-{$IFDEF HasFPCanvas1}reintroduce;{$ENDIF}
-procedure Rectangle(const R: TRect); overload;
-{$IFDEF HasFPCanvas1}reintroduce;{$ENDIF}
-procedure RoundRect(X1, Y1, X2, Y2, RX, RY: integer); overload; virtual;
-procedure RoundRect(const Rect: TRect; RX, RY: integer); overload;
-procedure TextOut(X, Y: integer; const Text: string); virtual;
-{$IFDEF HasFPCanvas1}reintroduce;{$ENDIF}
-procedure TextRect(const ARect: TRect; X, Y: integer; const Text: string); overload;
-procedure TextRect(ARect: TRect; X, Y: integer; const Text: string;
-  const Style: TTextStyle); overload; virtual;
-function TextExtent(const Text: string): TSize; virtual;
-{$IFDEF HasFPCanvas1}reintroduce;{$ENDIF}
-function TextHeight(const Text: string): integer;
-  virtual; {$IFDEF HasFPCanvas1}reintroduce;{$ENDIF}
-function TextWidth(const Text: string): integer;
-  virtual; {$IFDEF HasFPCanvas1}reintroduce;{$ENDIF}
-function TextFitInfo(const Text: string; MaxWidth: integer): integer; virtual;
-function HandleAllocated: boolean; virtual;
-function GetUpdatedHandle(ReqState: TCanvasState): HDC; virtual;
+    procedure Arc(ALeft, ATop, ARight, ABottom, Angle16Deg, Angle16DegLength: integer);
+      virtual; {$IFDEF HasFPCanvas1}reintroduce;{$ENDIF}
+    procedure Arc(ALeft, ATop, ARight, ABottom, SX, SY, EX, EY: integer);
+      virtual; {$IFDEF HasFPCanvas1}reintroduce;{$ENDIF}
+    procedure ArcTo(ALeft, ATop, ARight, ABottom, SX, SY, EX, EY: integer); virtual;
+    procedure AngleArc(X, Y: integer; Radius: longword; StartAngle, SweepAngle: single);
+    procedure BrushCopy(ADestRect: TRect; ABitmap: TBitmap; ASourceRect: TRect;
+      ATransparentColor: TColor); virtual;
+    procedure Chord(x1, y1, x2, y2, Angle16Deg, Angle16DegLength: integer);
+      virtual; {$IFDEF HasFPCanvas1}reintroduce;{$ENDIF}
+    procedure Chord(x1, y1, x2, y2, SX, SY, EX, EY: integer); virtual;
+    {$IFDEF HasFPCanvas1}reintroduce;{$ENDIF}
+    procedure CopyRect(const Dest: TRect; SrcCanvas: TCanvas; const Source: TRect);
+      virtual; reintroduce;
+    procedure Draw(X, Y: integer; SrcGraphic: TGraphic); virtual; reintroduce;
+    procedure DrawFocusRect(const ARect: TRect); virtual;
+    procedure StretchDraw(const DestRect: TRect; SrcGraphic: TGraphic);
+      virtual; reintroduce;
+    procedure StretchDraw(x, y, w, h: integer; Source: TFPCustomImage); overload;
+    procedure Ellipse(const ARect: TRect); overload;
+    {$IFDEF HasFPCanvas1}reintroduce;{$ENDIF}
+    procedure Ellipse(x1, y1, x2, y2: integer); overload; virtual;
+    {$IFDEF HasFPCanvas1}reintroduce;{$ENDIF}
+    procedure FillRect(const ARect: TRect); virtual;
+    {$IFDEF HasFPCanvas1}reintroduce;{$ENDIF}
+    procedure FillRect(X1, Y1, X2, Y2: integer); overload;
+    {$IFDEF HasFPCanvas1}reintroduce;{$ENDIF}
+    procedure FloodFill(X, Y: integer; FillColor: TColor; FillStyle: TFillStyle);
+      virtual; {$IFDEF HasFPCanvas1}reintroduce;{$ENDIF}
+    procedure Frame3d(var ARect: TRect; const FrameWidth: integer;
+      const Style: TGraphicsBevelCut); virtual;
+    procedure Frame3D(var ARect: TRect; TopColor, BottomColor: TColor;
+      const FrameWidth: integer); overload;
+    procedure Frame(const ARect: TRect); overload; virtual;
+    procedure Frame(X1, Y1, X2, Y2: integer); overload;
+    procedure FrameRect(const ARect: TRect); overload; virtual;
+    procedure FrameRect(X1, Y1, X2, Y2: integer); overload;
+    function GetTextMetrics(out TM: TLCLTextMetric): boolean; virtual;
+    procedure GradientFill(ARect: TRect; AStart, AStop: TColor;
+      ADirection: TGradientDirection); {$IFDEF HasFPCanvas1}reintroduce;{$ENDIF}
+    procedure RadialPie(x1, y1, x2, y2, StartAngle16Deg, Angle16DegLength: integer);
+      virtual; {$IFDEF HasFPCanvas1}reintroduce;{$ENDIF}
+    procedure Pie(EllipseX1, EllipseY1, EllipseX2, EllipseY2, StartX,
+      StartY, EndX, EndY: integer); virtual;
+    procedure PolyBezier(Points: PPoint; NumPts: integer; Filled: boolean = False;
+      Continuous: boolean = True); virtual; {$IFDEF HasFPCanvas1}reintroduce;{$ENDIF}
+    procedure PolyBezier(const Points: array of TPoint; Filled: boolean = False;
+      Continuous: boolean = True); overload; {$IFDEF HasFPCanvas1}reintroduce;{$ENDIF}
+    procedure Polygon(const Points: array of TPoint; Winding: boolean;
+      StartIndex: integer = 0; NumPts: integer = -1); overload;
+    procedure Polygon(Points: PPoint; NumPts: integer; Winding: boolean = False);
+      overload; virtual;
+    procedure Polygon(const Points: array of TPoint); overload;
+    {$IFDEF HasFPCanvas1}reintroduce;{$ENDIF}
+    procedure Polyline(const Points: array of TPoint; StartIndex: integer;
+      NumPts: integer = -1); overload;
+    procedure Polyline(Points: PPoint; NumPts: integer); overload; virtual;
+    procedure Polyline(const Points: array of TPoint); overload;
+    {$IFDEF HasFPCanvas1}reintroduce;{$ENDIF}
+    procedure Rectangle(X1, Y1, X2, Y2: integer); overload; virtual;
+    {$IFDEF HasFPCanvas1}reintroduce;{$ENDIF}
+    procedure Rectangle(const R: TRect); overload;
+    {$IFDEF HasFPCanvas1}reintroduce;{$ENDIF}
+    procedure RoundRect(X1, Y1, X2, Y2, RX, RY: integer); overload; virtual;
+    procedure RoundRect(const Rect: TRect; RX, RY: integer); overload;
+    procedure TextOut(X, Y: integer; const Text: string); virtual;
+    {$IFDEF HasFPCanvas1}reintroduce;{$ENDIF}
+    procedure TextRect(const ARect: TRect; X, Y: integer; const Text: string); overload;
+    procedure TextRect(ARect: TRect; X, Y: integer; const Text: string;
+      const Style: TTextStyle); overload; virtual;
+    function TextExtent(const Text: string): TSize; virtual;
+    {$IFDEF HasFPCanvas1}reintroduce;{$ENDIF}
+    function TextHeight(const Text: string): integer;
+      virtual; {$IFDEF HasFPCanvas1}reintroduce;{$ENDIF}
+    function TextWidth(const Text: string): integer;
+      virtual; {$IFDEF HasFPCanvas1}reintroduce;{$ENDIF}
+    function TextFitInfo(const Text: string; MaxWidth: integer): integer; virtual;
+    function HandleAllocated: boolean; virtual;
+    function GetUpdatedHandle(ReqState: TCanvasState): HDC; virtual;
 
-procedure SetSize(AWidth, AHeight: integer);
+    procedure SetSize(AWidth, AHeight: integer);
 
-property Pen: TPen read FLazPen;
-property Brush: TBrush read FLazBrush;
-property Font: TFont read FLazFont;
-property Width: integer read GetWidth;
-property Height: integer read GetHeight;
+    property Pen: TPen read FLazPen;
+    property Brush: TBrush read FLazBrush;
+    property Font: TFont read FLazFont;
+    property Width: integer read GetWidth;
+    property Height: integer read GetHeight;
 
   end;
 
@@ -448,10 +446,9 @@ const
     'in vec4 vColor;'#10 + 'flat in int vKind;'#10 + 'uniform sampler2D uTex;'#10 +
     'uniform int uPenStyle;'#10 + 'uniform vec4 uDashParams;'#10 +
     'uniform int uBrushStyle;'#10 + 'out vec4 FragColor;'#10 +
-    'float sdSegment(vec2 p, vec2 a, vec2 b) {'#10 +
-    '  vec2 pa = p - a;'#10 + '  vec2 ba = b - a;'#10 +
-    '  float h = clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0);'#10 +
-    '  return length(pa - ba * h);'#10 + '}'#10 + 'float sdBox(vec2 p, vec2 b) {'#10 +
+    'float sdSegment(vec2 p, vec2 a, vec2 b) {'#10 + '  vec2 pa = p - a;'#10 +
+    '  vec2 ba = b - a;'#10 + '  float h = clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0);'#10
+    + '  return length(pa - ba * h);'#10 + '}'#10 + 'float sdBox(vec2 p, vec2 b) {'#10 +
     '  vec2 d = abs(p) - b;'#10 +
     '  return length(max(d, 0.0)) + min(max(d.x, d.y), 0.0);'#10 +
     '}'#10 + 'float sdEllipse(vec2 p, vec2 r) {'#10 +
@@ -461,66 +458,56 @@ const
     '  vec2 q = abs(p) - b + r;'#10 +
     '  return min(max(q.x, q.y), 0.0) + length(max(q, 0.0)) - r;'#10 +
     '}'#10 + 'float getHatchAlpha(vec2 p) {'#10 +
-    '  if (uBrushStyle == 0) return 1.0;'#10 +
-    '  float freq = 0.15;'#10 +
+    '  if (uBrushStyle == 0) return 1.0;'#10 + '  float freq = 0.15;'#10 +
     '  float width = 0.5;'#10 +
     '  if (uBrushStyle == 1) return step(width, fract(p.y * freq));'#10 +
     '  if (uBrushStyle == 2) return step(width, fract(p.x * freq));'#10 +
     '  if (uBrushStyle == 3) return step(width, fract((p.x + p.y) * freq));'#10 +
     '  if (uBrushStyle == 4) return step(width, fract((p.x - p.y) * freq));'#10 +
-    '  if (uBrushStyle == 5) return min(step(width, fract(p.y * freq)), step(width, fract(p.x * freq)));'#10 +
-    '  if (uBrushStyle == 6) return min(step(width, fract((p.x + p.y) * freq)), step(width, fract((p.x - p.y) * freq)));'#10 +
-    '  return 1.0;'#10 +
-    '}'#10 + 'void main() {'#10 + '  float aa = 1.5;'#10 +
-    '  float alpha = 1.0;'#10 + '  float dist;'#10 + '  if (vKind == 8) {'#10 +
-    '  vec4 texColor = texture(uTex, vLocal);'#10 +
+    '  if (uBrushStyle == 5) return min(step(width, fract(p.y * freq)), step(width, fract(p.x * freq)));'#10
+    + '  if (uBrushStyle == 6) return min(step(width, fract((p.x + p.y) * freq)), step(width, fract((p.x - p.y) * freq)));'#10 + '  return 1.0;'#10 + '}'#10 + 'void main() {'#10 +
+    '  float aa = 1.5;'#10 + '  float alpha = 1.0;'#10 + '  float dist;'#10 +
+    '  if (vKind == 8) {'#10 + '  vec4 texColor = texture(uTex, vLocal);'#10 +
     '  FragColor = vec4(vColor.rgb, vColor.a * texColor.a);'#10 +
     '  if (FragColor.a <= 0.001) discard;'#10 + '  return;'#10 +
     '  }'#10 + '  if (vKind == 0) {'#10 + '    FragColor = vColor;'#10 +
-    '    FragColor.a *= getHatchAlpha(vLocal);'#10 +
-    '    return;'#10 + '  }'#10 + '  if (vKind == 1) {'#10 +
-    '    vec2 a = vec2(0.0, 0.0);'#10 + '    vec2 b = vData0.xy;'#10 +
-    '    float halfW = vData0.z;'#10 +
+    '    FragColor.a *= getHatchAlpha(vLocal);'#10 + '    return;'#10 +
+    '  }'#10 + '  if (vKind == 1) {'#10 + '    vec2 a = vec2(0.0, 0.0);'#10 +
+    '    vec2 b = vData0.xy;'#10 + '    float halfW = vData0.z;'#10 +
     '    dist = sdSegment(vLocal, a, b) - halfW;'#10 +
-    '    float dash = 1.0;'#10 +
-    '    if (uPenStyle > 0) {'#10 +
+    '    float dash = 1.0;'#10 + '    if (uPenStyle > 0) {'#10 +
     '      float len = vData0.x;'#10 +
     '      float t = clamp(vLocal.x, 0.0, len);'#10 +
-    '      float l1 = uDashParams.x;'#10 +
-    '      float g1 = uDashParams.y;'#10 +
-    '      float l2 = uDashParams.z;'#10 +
-    '      float g2 = uDashParams.w;'#10 +
+    '      float l1 = uDashParams.x;'#10 + '      float g1 = uDashParams.y;'#10 +
+    '      float l2 = uDashParams.z;'#10 + '      float g2 = uDashParams.w;'#10 +
     '      float period = l1 + g1 + l2 + g2;'#10 +
     '      if (period < 0.1) period = 1.0;'#10 +
-    '      float pos = mod(t, period);'#10 +
-    '      dash = 1.0;'#10 +
+    '      float pos = mod(t, period);'#10 + '      dash = 1.0;'#10 +
     '      if (pos < l1) dash = 1.0;'#10 +
     '      else if (pos < l1 + g1) dash = 0.0;'#10 +
     '      else if (pos < l1 + g1 + l2) dash = 1.0;'#10 +
-    '      else dash = 0.0;'#10 +
-    '    }'#10 +
-    '    alpha = (1.0 - smoothstep(-aa, aa, dist)) * dash;'#10 + '  }'#10 +
-    '  else if (vKind == 2) {'#10 + '    vec2 halfSize = vData0.xy;'#10 +
+    '      else dash = 0.0;'#10 + '    }'#10 +
+    '    alpha = (1.0 - smoothstep(-aa, aa, dist)) * dash;'#10 +
+    '  }'#10 + '  else if (vKind == 2) {'#10 + '    vec2 halfSize = vData0.xy;'#10 +
     '    dist = sdBox(vLocal, halfSize);'#10 +
-    '    alpha = (1.0 - smoothstep(-aa, aa, dist)) * getHatchAlpha(vLocal);'#10 + '  }'#10 +
-    '  else if (vKind == 3) {'#10 + '    vec2 halfSize = vData0.xy;'#10 +
+    '    alpha = (1.0 - smoothstep(-aa, aa, dist)) * getHatchAlpha(vLocal);'#10 +
+    '  }'#10 + '  else if (vKind == 3) {'#10 + '    vec2 halfSize = vData0.xy;'#10 +
     '    float halfW = vData0.z;'#10 +
     '    float d = abs(sdBox(vLocal, halfSize)) - halfW;'#10 +
     '    alpha = 1.0 - smoothstep(-aa, aa, d);'#10 + '  }'#10 +
     '  else if (vKind == 4) {'#10 + '    vec2 radius = vData0.xy;'#10 +
     '    dist = sdEllipse(vLocal, radius);'#10 +
-    '    alpha = (1.0 - smoothstep(-aa, aa, dist)) * getHatchAlpha(vLocal);'#10 + '  }'#10 +
-    '  else if (vKind == 5) {'#10 + '    vec2 radius = vData0.xy;'#10 +
+    '    alpha = (1.0 - smoothstep(-aa, aa, dist)) * getHatchAlpha(vLocal);'#10 +
+    '  }'#10 + '  else if (vKind == 5) {'#10 + '    vec2 radius = vData0.xy;'#10 +
     '    float halfW = vData0.z;'#10 +
     '    float d = abs(sdEllipse(vLocal, radius)) - halfW;'#10 +
     '    alpha = 1.0 - smoothstep(-aa, aa, d);'#10 + '  }'#10 +
     '  else if (vKind == 6) {'#10 + '    vec2 halfSize = vData0.xy;'#10 +
     '    float radius = vData0.z;'#10 +
     '    dist = sdRoundedBox(vLocal, halfSize, radius);'#10 +
-    '    alpha = (1.0 - smoothstep(-aa, aa, dist)) * getHatchAlpha(vLocal);'#10 + '  }'#10 +
-    '  else if (vKind == 7) {'#10 + '    vec2 halfSize = vData0.xy;'#10 +
-    '    float radius = vData0.z;'#10 +
-    '    float halfW  = vData0.w;'#10 +
+    '    alpha = (1.0 - smoothstep(-aa, aa, dist)) * getHatchAlpha(vLocal);'#10 +
+    '  }'#10 + '  else if (vKind == 7) {'#10 + '    vec2 halfSize = vData0.xy;'#10 +
+    '    float radius = vData0.z;'#10 + '    float halfW  = vData0.w;'#10 +
     '    float d = abs(sdRoundedBox(vLocal, halfSize, radius)) - halfW;'#10 +
     '    alpha = 1.0 - smoothstep(-aa, aa, d);'#10 + '  }'#10 +
     '  else {'#10 + '    alpha = 1.0;'#10 + '  }'#10 +
@@ -732,16 +719,16 @@ begin
     B2 := byte((p + 1)^);
     if (B2 and $C0) <> $80 then
       Exit;
-CodePoint := ((B1 and $1F) shl 6) or (B2 and $3F);
+    CodePoint := ((B1 and $1F) shl 6) or (B2 and $3F);
 
-if CodePoint < $80 then
-begin
-  CodePoint := 0;
-  Exit;
-end;
+    if CodePoint < $80 then
+    begin
+      CodePoint := 0;
+      Exit;
+    end;
 
-Result := 2;
-Exit;
+    Result := 2;
+    Exit;
 
   end;
 
@@ -749,19 +736,19 @@ Exit;
   begin
     B2 := byte((p + 1)^);
     B3 := byte((p + 2)^);
-if ((B2 and $C0) <> $80) or ((B3 and $C0) <> $80) then
-  Exit;
+    if ((B2 and $C0) <> $80) or ((B3 and $C0) <> $80) then
+      Exit;
 
-CodePoint := ((B1 and $0F) shl 12) or ((B2 and $3F) shl 6) or (B3 and $3F);
+    CodePoint := ((B1 and $0F) shl 12) or ((B2 and $3F) shl 6) or (B3 and $3F);
 
-if (CodePoint < $800) or ((CodePoint >= $D800) and (CodePoint <= $DFFF)) then
-begin
-  CodePoint := 0;
-  Exit;
-end;
+    if (CodePoint < $800) or ((CodePoint >= $D800) and (CodePoint <= $DFFF)) then
+    begin
+      CodePoint := 0;
+      Exit;
+    end;
 
-Result := 3;
-Exit;
+    Result := 3;
+    Exit;
 
   end;
 
@@ -770,20 +757,20 @@ Exit;
     B2 := byte((p + 1)^);
     B3 := byte((p + 2)^);
     B4 := byte((p + 3)^);
-if ((B2 and $C0) <> $80) or ((B3 and $C0) <> $80) or ((B4 and $C0) <> $80) then
-  Exit;
+    if ((B2 and $C0) <> $80) or ((B3 and $C0) <> $80) or ((B4 and $C0) <> $80) then
+      Exit;
 
-CodePoint := ((B1 and $07) shl 18) or ((B2 and $3F) shl 12) or
-  ((B3 and $3F) shl 6) or (B4 and $3F);
+    CodePoint := ((B1 and $07) shl 18) or ((B2 and $3F) shl 12) or
+      ((B3 and $3F) shl 6) or (B4 and $3F);
 
-if (CodePoint < $10000) or (CodePoint > $10FFFF) then
-begin
-  CodePoint := 0;
-  Exit;
-end;
+    if (CodePoint < $10000) or (CodePoint > $10FFFF) then
+    begin
+      CodePoint := 0;
+      Exit;
+    end;
 
-Result := 4;
-Exit;
+    Result := 4;
+    Exit;
 
   end;
 end;
@@ -1010,11 +997,11 @@ begin
     FClipRect := Rect(x, y, x + 1, y + 1);
     FClipping := True;
     ApplyScissor;
-FLazBrush.Style := bsSolid;
-FLazBrush.Color := FPColorToTColor(Value);
-ApplyBrushStyle;
-AddSolidRect(x, y, x + 1, y + 1, FPColorToVec4(Value));
-Flush;
+    FLazBrush.Style := bsSolid;
+    FLazBrush.Color := FPColorToTColor(Value);
+    ApplyBrushStyle;
+    AddSolidRect(x, y, x + 1, y + 1, FPColorToVec4(Value));
+    Flush;
 
   finally
     FLazBrush.Style := OldBrushStyle;
@@ -1157,7 +1144,7 @@ begin
     GL_TEXTURE_2D, 0, GL_RGBA8,
     FAtlasWidth, FAtlasHeight,
     0, GL_RGBA, GL_UNSIGNED_BYTE, @FAtlasData[0]
-  );
+    );
 
   glBindTexture(GL_TEXTURE_2D, 0);
 
@@ -1180,7 +1167,7 @@ begin
     0, 0,
     FAtlasWidth, FAtlasHeight,
     GL_RGBA, GL_UNSIGNED_BYTE, @FAtlasData[0]
-  );
+    );
   glBindTexture(GL_TEXTURE_2D, 0);
 
   FAtlasX := 0;
@@ -1332,24 +1319,24 @@ begin
   begin
     MinFrame := High(int64);
     LRUKey := 0;
-for Pair in FImgCacheInfo do
-begin
-  if Pair.Value.LastUsed < MinFrame then
-  begin
-    MinFrame := Pair.Value.LastUsed;
-    LRUKey := Pair.Key;
-    LRUInfo := Pair.Value;
-  end;
-end;
+    for Pair in FImgCacheInfo do
+    begin
+      if Pair.Value.LastUsed < MinFrame then
+      begin
+        MinFrame := Pair.Value.LastUsed;
+        LRUKey := Pair.Key;
+        LRUInfo := Pair.Value;
+      end;
+    end;
 
-if LRUKey = 0 then Break;
+    if LRUKey = 0 then Break;
 
-FImgCache.Remove(LRUInfo.ImgPtr);
-FImgCacheInfo.Remove(LRUKey);
+    FImgCache.Remove(LRUInfo.ImgPtr);
+    FImgCacheInfo.Remove(LRUKey);
 
-glDeleteTextures(1, @LRUKey);
+    glDeleteTextures(1, @LRUKey);
 
-Dec(FImgCacheTotalSize, LRUInfo.Size);
+    Dec(FImgCacheTotalSize, LRUInfo.Size);
 
   end;
 end;
@@ -2159,16 +2146,16 @@ begin
   if Result <> 0 then
   begin
     ImgSize := AImage.Width * AImage.Height * 4;
-EvictLRUImageTextures(ImgSize);
+    EvictLRUImageTextures(ImgSize);
 
-FImgCache.Add(ImgPtr, Result);
+    FImgCache.Add(ImgPtr, Result);
 
-Info.ImgPtr := ImgPtr;
-Info.LastUsed := FCurrentFrame;
-Info.Size := ImgSize;
+    Info.ImgPtr := ImgPtr;
+    Info.LastUsed := FCurrentFrame;
+    Info.Size := ImgSize;
 
-FImgCacheInfo.Add(Result, Info);
-Inc(FImgCacheTotalSize, ImgSize);
+    FImgCacheInfo.Add(Result, Info);
+    Inc(FImgCacheTotalSize, ImgSize);
 
   end;
 end;
@@ -2181,10 +2168,10 @@ var
   X, Y: integer;
   CharStr: unicodestring;
   C: TFPColor;
-  Data: PByte;
-  P: PByte;
+  Data: pbyte;
+  P: pbyte;
   Alpha: byte;
-  RowDst: PByte;
+  RowDst: pbyte;
   InkW, InkH: integer;
   GlyphW, GlyphH: integer;
   PlaceX, PlaceY: integer;
@@ -2204,124 +2191,127 @@ begin
     GlyphBitmap.PixelFormat := pf32bit;
     GlyphBitmap.Transparent := False;
     GlyphBitmap.Canvas.Font.Assign(FLazFont);
-CharStr := UnicodeString(UnicodeChar(AChar));
+    CharStr := unicodestring(unicodechar(AChar));
 
-InkW := GlyphBitmap.Canvas.TextWidth(CharStr);
-InkH := GlyphBitmap.Canvas.TextHeight(CharStr);
+    InkW := GlyphBitmap.Canvas.TextWidth(CharStr);
+    InkH := GlyphBitmap.Canvas.TextHeight(CharStr);
 
-if InkW <= 0 then
-  InkW := Max(1, FLazFont.Size div 2);
-if InkH <= 0 then
-  InkH := Max(1, FLazFont.Size + 4);
+    if InkW <= 0 then
+      InkW := Max(1, FLazFont.Size div 2);
+    if InkH <= 0 then
+      InkH := Max(1, FLazFont.Size + 4);
 
-GlyphW := InkW + GLYPH_PAD_X * 2;
-GlyphH := InkH + GLYPH_PAD_Y * 2;
+    GlyphW := InkW + GLYPH_PAD_X * 2;
+    GlyphH := InkH + GLYPH_PAD_Y * 2;
 
-if (GlyphW > FAtlasWidth) or (GlyphH > FAtlasHeight) then
-  raise Exception.CreateFmt('Glyph too large for atlas: %d x %d', [GlyphW, GlyphH]);
+    if (GlyphW > FAtlasWidth) or (GlyphH > FAtlasHeight) then
+      raise Exception.CreateFmt('Glyph too large for atlas: %d x %d', [GlyphW, GlyphH]);
 
-NeedReset := False;
+    NeedReset := False;
 
-if FAtlasX + GlyphW > FAtlasWidth then
-begin
-  FAtlasX := 0;
-  Inc(FAtlasY, FAtlasRowHeight + GLYPH_CELL_SPACING);
-  FAtlasRowHeight := 0;
-end;
+    if FAtlasX + GlyphW > FAtlasWidth then
+    begin
+      FAtlasX := 0;
+      Inc(FAtlasY, FAtlasRowHeight + GLYPH_CELL_SPACING);
+      FAtlasRowHeight := 0;
+    end;
 
-if FAtlasY + GlyphH > FAtlasHeight then
-  NeedReset := True;
+    if FAtlasY + GlyphH > FAtlasHeight then
+      NeedReset := True;
 
-if NeedReset then
-begin
-  Flush;
-  ResetAtlas;
-end;
+    if NeedReset then
+    begin
+      Flush;
+      ResetAtlas;
+    end;
 
-if FAtlasX + GlyphW > FAtlasWidth then
-begin
-  FAtlasX := 0;
-  Inc(FAtlasY, FAtlasRowHeight + GLYPH_CELL_SPACING);
-  FAtlasRowHeight := 0;
-end;
+    if FAtlasX + GlyphW > FAtlasWidth then
+    begin
+      FAtlasX := 0;
+      Inc(FAtlasY, FAtlasRowHeight + GLYPH_CELL_SPACING);
+      FAtlasRowHeight := 0;
+    end;
 
-if FAtlasY + GlyphH > FAtlasHeight then
-  raise Exception.Create('Glyph atlas overflow after reset');
+    if FAtlasY + GlyphH > FAtlasHeight then
+      raise Exception.Create('Glyph atlas overflow after reset');
 
-PlaceX := FAtlasX;
-PlaceY := FAtlasY;
+    PlaceX := FAtlasX;
+    PlaceY := FAtlasY;
 
-GlyphBitmap.SetSize(GlyphW, GlyphH);
+    GlyphBitmap.SetSize(GlyphW, GlyphH);
 
-GlyphBitmap.Canvas.Brush.Style := bsSolid;
-GlyphBitmap.Canvas.Brush.Color := clWhite;
-GlyphBitmap.Canvas.FillRect(0, 0, GlyphW, GlyphH);
+    GlyphBitmap.Canvas.Brush.Style := bsSolid;
+    GlyphBitmap.Canvas.Brush.Color := clWhite;
+    GlyphBitmap.Canvas.FillRect(0, 0, GlyphW, GlyphH);
 
-GlyphBitmap.Canvas.Font.Assign(FLazFont);
-GlyphBitmap.Canvas.Font.Color := clBlack;
-GlyphBitmap.Canvas.Brush.Style := bsClear;
-GlyphBitmap.Canvas.TextOut(GLYPH_PAD_X, GLYPH_PAD_Y, CharStr);
+    GlyphBitmap.Canvas.Font.Assign(FLazFont);
+    GlyphBitmap.Canvas.Font.Color := clBlack;
+    GlyphBitmap.Canvas.Brush.Style := bsClear;
+    GlyphBitmap.Canvas.TextOut(GLYPH_PAD_X, GLYPH_PAD_Y, CharStr);
 
-IntfImg := GlyphBitmap.CreateIntfImage;
-if IntfImg = nil then
-  raise Exception.Create('CreateIntfImage failed for glyph');
+    IntfImg := GlyphBitmap.CreateIntfImage;
+    if IntfImg = nil then
+      raise Exception.Create('CreateIntfImage failed for glyph');
 
-GetMem(Data, GlyphW * GlyphH * 4);
-P := Data;
+    GetMem(Data, GlyphW * GlyphH * 4);
+    P := Data;
 
-for Y := 0 to GlyphH - 1 do
-  for X := 0 to GlyphW - 1 do
-  begin
-    C := IntfImg.Colors[X, Y];
+    for Y := 0 to GlyphH - 1 do
+      for X := 0 to GlyphW - 1 do
+      begin
+        C := IntfImg.Colors[X, Y];
 
-    Alpha := 255 - (((C.Red shr 8) + (C.Green shr 8) + (C.Blue shr 8)) div 3);
-    if Alpha < 8 then
-      Alpha := 0;
+        Alpha := 255 - (((C.Red shr 8) + (C.Green shr 8) + (C.Blue shr 8)) div 3);
+        if Alpha < 8 then
+          Alpha := 0;
 
-    P^ := 255; Inc(P);
-    P^ := 255; Inc(P);
-    P^ := 255; Inc(P);
-    P^ := Alpha; Inc(P);
-  end;
+        P^ := 255;
+        Inc(P);
+        P^ := 255;
+        Inc(P);
+        P^ := 255;
+        Inc(P);
+        P^ := Alpha;
+        Inc(P);
+      end;
 
-glBindTexture(GL_TEXTURE_2D, FAtlasTex);
-glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-glTexSubImage2D(
-  GL_TEXTURE_2D, 0,
-  PlaceX, PlaceY,
-  GlyphW, GlyphH,
-  GL_RGBA, GL_UNSIGNED_BYTE,
-  Data
-);
-glBindTexture(GL_TEXTURE_2D, 0);
+    glBindTexture(GL_TEXTURE_2D, FAtlasTex);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glTexSubImage2D(
+      GL_TEXTURE_2D, 0,
+      PlaceX, PlaceY,
+      GlyphW, GlyphH,
+      GL_RGBA, GL_UNSIGNED_BYTE,
+      Data);
+    glBindTexture(GL_TEXTURE_2D, 0);
 
-P := Data;
-for Y := 0 to GlyphH - 1 do
-begin
-  RowDst := @FAtlasData[((PlaceY + Y) * FAtlasWidth + PlaceX) * 4];
-  Move(P^, RowDst^, GlyphW * 4);
-  Inc(P, GlyphW * 4);
-end;
+    P := Data;
+    for Y := 0 to GlyphH - 1 do
+    begin
+      RowDst := @FAtlasData[((PlaceY + Y) * FAtlasWidth + PlaceX) * 4];
+      Move(P^, RowDst^, GlyphW * 4);
+      Inc(P, GlyphW * 4);
+    end;
 
-Result.TexID := FAtlasTex;
+    Result.TexID := FAtlasTex;
 
-Result.U0 := PlaceX / FAtlasWidth;
-Result.V0 := PlaceY / FAtlasHeight;
-Result.U1 := (PlaceX + GlyphW) / FAtlasWidth;
-Result.V1 := (PlaceY + GlyphH) / FAtlasHeight;
+    Result.U0 := PlaceX / FAtlasWidth;
+    Result.V0 := PlaceY / FAtlasHeight;
+    Result.U1 := (PlaceX + GlyphW) / FAtlasWidth;
+    Result.V1 := (PlaceY + GlyphH) / FAtlasHeight;
 
-Result.Width := GlyphW;
-Result.Height := GlyphH;
+    Result.Width := GlyphW;
+    Result.Height := GlyphH;
 
-Result.BearingX := 0;
-Result.BearingY := GlyphH;
-Result.Advance := InkW;
+    Result.BearingX := 0;
+    Result.BearingY := GlyphH;
+    Result.Advance := InkW;
 
-FGlyphCache.Add(Key, Result);
+    FGlyphCache.Add(Key, Result);
 
-Inc(FAtlasX, GlyphW + GLYPH_CELL_SPACING);
-if GlyphH > FAtlasRowHeight then
-  FAtlasRowHeight := GlyphH;
+    Inc(FAtlasX, GlyphW + GLYPH_CELL_SPACING);
+    if GlyphH > FAtlasRowHeight then
+      FAtlasRowHeight := GlyphH;
 
   finally
     if Data <> nil then
@@ -2407,42 +2397,43 @@ begin
 
   case Style of
     psSolid:
-      begin
-        PenStyleInt := 0;
-      end;
+    begin
+      PenStyleInt := 0;
+    end;
     psDash:
-      begin
-        PenStyleInt := 1;
-        DashParams := MakeVec4(10.0, 5.0, 0.0, 0.0);
-      end;
+    begin
+      PenStyleInt := 1;
+      DashParams := MakeVec4(10.0, 5.0, 0.0, 0.0);
+    end;
     psDot:
-      begin
-        PenStyleInt := 1;
-        DashParams := MakeVec4(2.0, 2.0, 0.0, 0.0);
-      end;
+    begin
+      PenStyleInt := 1;
+      DashParams := MakeVec4(2.0, 2.0, 0.0, 0.0);
+    end;
     psDashDot:
-      begin
-        PenStyleInt := 1;
-        DashParams := MakeVec4(10.0, 3.0, 2.0, 3.0);
-      end;
+    begin
+      PenStyleInt := 1;
+      DashParams := MakeVec4(10.0, 3.0, 2.0, 3.0);
+    end;
     psDashDotDot:
-      begin
-        PenStyleInt := 1;
-        DashParams := MakeVec4(10.0, 3.0, 2.0, 3.0);
-      end;
+    begin
+      PenStyleInt := 1;
+      DashParams := MakeVec4(10.0, 3.0, 2.0, 3.0);
+    end;
     psClear:
-      begin
-        PenStyleInt := 0;
-      end;
+    begin
+      PenStyleInt := 0;
+    end;
     else
-      begin
-        PenStyleInt := 0;
-      end;
+    begin
+      PenStyleInt := 0;
+    end;
   end;
 
   glUseProgram(FProgram);
   glUniform1i(FUniformPenStyle, PenStyleInt);
-  glUniform4f(FUniformDashParams, DashParams.X, DashParams.Y, DashParams.Z, DashParams.W);
+  glUniform4f(FUniformDashParams, DashParams.X, DashParams.Y, DashParams.Z,
+    DashParams.W);
 end;
 
 procedure TGL2DCanvas.ApplyBrushStyle;
@@ -2468,7 +2459,8 @@ begin
     bsDiagCross: BrushStyleInt := 6;
     bsClear: BrushStyleInt := 0;
     bsPattern: BrushStyleInt := 0;
-    else BrushStyleInt := 0;
+    else
+      BrushStyleInt := 0;
   end;
 
   glUseProgram(FProgram);
@@ -2534,8 +2526,12 @@ begin
   ApplyBrushStyle;
 
   Col := ColorToVec4(FLazBrush.Color);
-  D.X := 0; D.Y := 0; D.Z := 0; D.W := 0;
-  Z.X := 0; Z.Y := 0;
+  D.X := 0;
+  D.Y := 0;
+  D.Z := 0;
+  D.W := 0;
+  Z.X := 0;
+  Z.Y := 0;
 
   A.Position.X := points[0].X;
   A.Position.Y := points[0].Y;
@@ -2552,14 +2548,14 @@ begin
     B.Data0 := D;
     B.Color := Col;
     B.Kind := Ord(pkSolid);
-C.Position.X := points[i + 1].X;
-C.Position.Y := points[i + 1].Y;
-C.Local := Z;
-C.Data0 := D;
-C.Color := Col;
-C.Kind := Ord(pkSolid);
+    C.Position.X := points[i + 1].X;
+    C.Position.Y := points[i + 1].Y;
+    C.Local := Z;
+    C.Data0 := D;
+    C.Color := Col;
+    C.Kind := Ord(pkSolid);
 
-AddTriangle(A, B, C);
+    AddTriangle(A, B, C);
 
   end;
 end;
@@ -2629,44 +2625,44 @@ begin
   try
     Bmp.PixelFormat := pf32bit;
     Bmp.Canvas.Font.Assign(FLazFont);
-W := Bmp.Canvas.TextWidth(Text);
-H := Bmp.Canvas.TextHeight(Text);
+    W := Bmp.Canvas.TextWidth(Text);
+    H := Bmp.Canvas.TextHeight(Text);
 
-if W <= 0 then W := 1;
-if H <= 0 then H := Max(1, FLazFont.Size + 4);
+    if W <= 0 then W := 1;
+    if H <= 0 then H := Max(1, FLazFont.Size + 4);
 
-Bmp.SetSize(W, H);
+    Bmp.SetSize(W, H);
 
-Bmp.Canvas.Brush.Style := bsSolid;
-Bmp.Canvas.Brush.Color := clBlack;
-Bmp.Canvas.FillRect(0, 0, W, H);
+    Bmp.Canvas.Brush.Style := bsSolid;
+    Bmp.Canvas.Brush.Color := clBlack;
+    Bmp.Canvas.FillRect(0, 0, W, H);
 
-Bmp.Canvas.Font.Assign(FLazFont);
-Bmp.Canvas.Font.Color := clWhite;
-Bmp.Canvas.Brush.Style := bsClear;
-Bmp.Canvas.TextOut(0, 0, Text);
+    Bmp.Canvas.Font.Assign(FLazFont);
+    Bmp.Canvas.Font.Color := clWhite;
+    Bmp.Canvas.Brush.Style := bsClear;
+    Bmp.Canvas.TextOut(0, 0, Text);
 
-Img := TLazIntfImage.Create(0, 0);
-Img.LoadFromBitmap(Bmp.Handle, Bmp.MaskHandle);
+    Img := TLazIntfImage.Create(0, 0);
+    Img.LoadFromBitmap(Bmp.Handle, Bmp.MaskHandle);
 
-FontCol := ColorToRGB(FLazFont.Color);
-FR := Red(FontCol);
-FG := Green(FontCol);
-FB := Blue(FontCol);
+    FontCol := ColorToRGB(FLazFont.Color);
+    FR := Red(FontCol);
+    FG := Green(FontCol);
+    FB := Blue(FontCol);
 
-for YY := 0 to Img.Height - 1 do
-  for XX := 0 to Img.Width - 1 do
-  begin
-    C := Img.Colors[XX, YY];
-    A := (C.Red + C.Green + C.Blue) div 3;
-    C.Red := FR * 257;
-    C.Green := FG * 257;
-    C.Blue := FB * 257;
-    C.Alpha := A;
-    Img.Colors[XX, YY] := C;
-  end;
+    for YY := 0 to Img.Height - 1 do
+      for XX := 0 to Img.Width - 1 do
+      begin
+        C := Img.Colors[XX, YY];
+        A := (C.Red + C.Green + C.Blue) div 3;
+        C.Red := FR * 257;
+        C.Green := FG * 257;
+        C.Blue := FB * 257;
+        C.Alpha := A;
+        Img.Colors[XX, YY] := C;
+      end;
 
-Result := CreateTextureFromLazIntfImage(Img);
+    Result := CreateTextureFromLazIntfImage(Img);
 
   finally
     Img.Free;
@@ -2797,20 +2793,19 @@ begin
       CodePoint := Ord('?');
       CharLen := 1;
     end;
-GlyphInfo := GetGlyphInfo(CodePoint);
+    GlyphInfo := GetGlyphInfo(CodePoint);
 
-AddTexturedQuad(
-  CurX - GLYPH_PAD_X,
-  y - GLYPH_PAD_Y,
-  CurX - GLYPH_PAD_X + GlyphInfo.Width,
-  y - GLYPH_PAD_Y + GlyphInfo.Height,
-  GlyphInfo.U0, GlyphInfo.V0, GlyphInfo.U1, GlyphInfo.V1,
-  GlyphInfo.TexID,
-  TextColor
-);
+    AddTexturedQuad(
+      CurX - GLYPH_PAD_X,
+      y - GLYPH_PAD_Y,
+      CurX - GLYPH_PAD_X + GlyphInfo.Width,
+      y - GLYPH_PAD_Y + GlyphInfo.Height,
+      GlyphInfo.U0, GlyphInfo.V0, GlyphInfo.U1, GlyphInfo.V1,
+      GlyphInfo.TexID,
+      TextColor);
 
-Inc(CurX, GlyphInfo.Advance);
-Inc(I, CharLen);
+    Inc(CurX, GlyphInfo.Advance);
+    Inc(I, CharLen);
 
   end;
 end;
@@ -2845,13 +2840,13 @@ begin
       CodePoint := Ord('?');
       CharLen := 1;
     end;
-GlyphInfo := GetGlyphInfo(CodePoint);
+    GlyphInfo := GetGlyphInfo(CodePoint);
 
-Inc(w, GlyphInfo.Advance);
-if GlyphInfo.Height > MaxHeight then
-  MaxHeight := GlyphInfo.Height;
+    Inc(w, GlyphInfo.Advance);
+    if GlyphInfo.Height > MaxHeight then
+      MaxHeight := GlyphInfo.Height;
 
-Inc(I, CharLen);
+    Inc(I, CharLen);
 
   end;
 
@@ -2906,9 +2901,9 @@ begin
     for SY := 0 to Img.Height - 1 do
       for SX := 0 to Img.Width - 1 do
         Img.Colors[SX, SY] := canvas.Colors[R.Left + SX, R.Top + SY];
-for DY := 0 to Img.Height - 1 do
-  for DX := 0 to Img.Width - 1 do
-    Colors[x + DX, y + DY] := Img.Colors[DX, DY];
+    for DY := 0 to Img.Height - 1 do
+      for DX := 0 to Img.Width - 1 do
+        Colors[x + DX, y + DY] := Img.Colors[DX, DY];
 
   finally
     Img.Free;
@@ -2964,8 +2959,12 @@ begin
   if Steps > 100 then Steps := 100;
 
   C := ColorToVec4(FLazBrush.Color);
-  D.X := 0; D.Y := 0; D.Z := 0; D.W := 0;
-  Z.X := 0; Z.Y := 0;
+  D.X := 0;
+  D.Y := 0;
+  D.Z := 0;
+  D.W := 0;
+  Z.X := 0;
+  Z.Y := 0;
 
   Center.X := CX;
   Center.Y := CY;
@@ -2983,19 +2982,19 @@ begin
     Angle := StartAngle + (EndAngle - StartAngle) * (I / Steps);
     P2.X := CX + Cos(Angle) * RX;
     P2.Y := CY + Sin(Angle) * RY;
-V1.Position := P1;
-V1.Local := Z;
-V1.Data0 := D;
-V1.Color := C;
-V1.Kind := Ord(pkSolid);
-V2.Position := P2;
-V2.Local := Z;
-V2.Data0 := D;
-V2.Color := C;
-V2.Kind := Ord(pkSolid);
+    V1.Position := P1;
+    V1.Local := Z;
+    V1.Data0 := D;
+    V1.Color := C;
+    V1.Kind := Ord(pkSolid);
+    V2.Position := P2;
+    V2.Local := Z;
+    V2.Data0 := D;
+    V2.Color := C;
+    V2.Kind := Ord(pkSolid);
 
-AddTriangle(V0, V1, V2);
-P1 := P2;
+    AddTriangle(V0, V1, V2);
+    P1 := P2;
 
   end;
 end;
@@ -3044,19 +3043,19 @@ begin
       p3 := Points[i + 3];
       Inc(i, 4);
     end;
-if Count = 0 then AddBezierPoint(p0);
+    if Count = 0 then AddBezierPoint(p0);
 
-Steps := 20;
-dt := 1.0 / Steps;
-for j := 1 to Steps do
-begin
-  t := j * dt;
-  x := Power(1 - t, 3) * p0.X + 3 * Power(1 - t, 2) * t * p1.X +
-    3 * (1 - t) * t * t * p2.X + t * t * t * p3.X;
-  y := Power(1 - t, 3) * p0.Y + 3 * Power(1 - t, 2) * t * p1.Y +
-    3 * (1 - t) * t * t * p2.Y + t * t * t * p3.Y;
-  AddBezierPoint(Point(Round(x), Round(y)));
-end;
+    Steps := 20;
+    dt := 1.0 / Steps;
+    for j := 1 to Steps do
+    begin
+      t := j * dt;
+      x := Power(1 - t, 3) * p0.X + 3 * Power(1 - t, 2) * t * p1.X +
+        3 * (1 - t) * t * t * p2.X + t * t * t * p3.X;
+      y := Power(1 - t, 3) * p0.Y + 3 * Power(1 - t, 2) * t * p1.Y +
+        3 * (1 - t) * t * t * p2.Y + t * t * t * p3.Y;
+      AddBezierPoint(Point(Round(x), Round(y)));
+    end;
 
   end;
 
@@ -3381,7 +3380,9 @@ begin
 
   for I := 0 to Steps - 1 do
   begin
-    if Steps = 1 then T := 0 else T := I / (Steps - 1);
+    if Steps = 1 then T := 0
+    else
+      T := I / (Steps - 1);
     A := AStartRad + ASweepRad * T;
     Points[ACount] := PointOnEllipse(RR, A);
     Inc(ACount);
@@ -3460,12 +3461,12 @@ begin
     Bmp.Canvas.Brush.Color := clBlack;
     Bmp.Canvas.FillRect(0, 0, Bmp.Width, Bmp.Height);
     Bmp.Canvas.Draw(0, 0, ASrc);
-Img := TFPMemoryImage.Create(Bmp.Width, Bmp.Height);
-for Y := 0 to Bmp.Height - 1 do
-  for X := 0 to Bmp.Width - 1 do
-    Img.Colors[X, Y] := Bmp.Canvas.Colors[X, Y];
+    Img := TFPMemoryImage.Create(Bmp.Width, Bmp.Height);
+    for Y := 0 to Bmp.Height - 1 do
+      for X := 0 to Bmp.Width - 1 do
+        Img.Colors[X, Y] := Bmp.Canvas.Colors[X, Y];
 
-Result := Img;
+    Result := Img;
 
   finally
     Bmp.Free;
@@ -3581,36 +3582,35 @@ begin
     for Y := 0 to ABitmap.Height - 1 do
       for X := 0 to ABitmap.Width - 1 do
         SrcImg.Colors[X, Y] := ABitmap.Canvas.Colors[X, Y];
-TmpImg := TFPMemoryImage.Create(DstR.Right - DstR.Left, DstR.Bottom - DstR.Top);
-try
-  TransparentFP := TColorToFPColor(ATransparentColor);
+    TmpImg := TFPMemoryImage.Create(DstR.Right - DstR.Left, DstR.Bottom - DstR.Top);
+    try
+      TransparentFP := TColorToFPColor(ATransparentColor);
 
-  for Y := 0 to TmpImg.Height - 1 do
-    for X := 0 to TmpImg.Width - 1 do
-    begin
-      SX := SrcR.Left + MulDiv(X, SrcR.Right - SrcR.Left, TmpImg.Width);
-      SY := SrcR.Top + MulDiv(Y, SrcR.Bottom - SrcR.Top, TmpImg.Height);
+      for Y := 0 to TmpImg.Height - 1 do
+        for X := 0 to TmpImg.Width - 1 do
+        begin
+          SX := SrcR.Left + MulDiv(X, SrcR.Right - SrcR.Left, TmpImg.Width);
+          SY := SrcR.Top + MulDiv(Y, SrcR.Bottom - SrcR.Top, TmpImg.Height);
 
-      if SX >= SrcImg.Width then SX := SrcImg.Width - 1;
-      if SY >= SrcImg.Height then SY := SrcImg.Height - 1;
-      if SX < 0 then SX := 0;
-      if SY < 0 then SY := 0;
+          if SX >= SrcImg.Width then SX := SrcImg.Width - 1;
+          if SY >= SrcImg.Height then SY := SrcImg.Height - 1;
+          if SX < 0 then SX := 0;
+          if SY < 0 then SY := 0;
 
-      SrcC := SrcImg.Colors[SX, SY];
-      if (SrcC.red = TransparentFP.red) and
-        (SrcC.green = TransparentFP.green) and
-        (SrcC.blue = TransparentFP.blue) then
-      begin
-        SrcC.alpha := 0;
-      end;
+          SrcC := SrcImg.Colors[SX, SY];
+          if (SrcC.red = TransparentFP.red) and (SrcC.green = TransparentFP.green) and
+            (SrcC.blue = TransparentFP.blue) then
+          begin
+            SrcC.alpha := 0;
+          end;
 
-      TmpImg.Colors[X, Y] := SrcC;
+          TmpImg.Colors[X, Y] := SrcC;
+        end;
+
+      DoDraw(DstR.Left, DstR.Top, TmpImg);
+    finally
+      TmpImg.Free;
     end;
-
-  DoDraw(DstR.Left, DstR.Top, TmpImg);
-finally
-  TmpImg.Free;
-end;
 
   finally
     SrcImg.Free;
@@ -3667,8 +3667,8 @@ begin
         SY := SrcR.Top + Y;
         SrcImg.Colors[X, Y] := SrcCanvas.Colors[SX, SY];
       end;
-StretchDraw(DstR.Left, DstR.Top, DstR.Right - DstR.Left, DstR.Bottom -
-  DstR.Top, SrcImg);
+    StretchDraw(DstR.Left, DstR.Top, DstR.Right - DstR.Left, DstR.Bottom -
+      DstR.Top, SrcImg);
 
   finally
     SrcImg.Free;
@@ -3707,50 +3707,50 @@ begin
     FLazPen.Color := clBlack;
     FLazPen.Width := 1;
     FLazPen.Style := psSolid;
-SetLength(Pts, 0);
+    SetLength(Pts, 0);
 
-for I := R.Left to R.Right - 1 do
-  if ((I - R.Left) mod 2) = 0 then
-  begin
-    SetLength(Pts, Length(Pts) + 2);
-    Pts[High(Pts) - 1] := Point(I, R.Top);
-    Pts[High(Pts)] := Point(I + 1, R.Top);
-  end;
-if Length(Pts) > 1 then
-  DoPolyline(Pts);
+    for I := R.Left to R.Right - 1 do
+      if ((I - R.Left) mod 2) = 0 then
+      begin
+        SetLength(Pts, Length(Pts) + 2);
+        Pts[High(Pts) - 1] := Point(I, R.Top);
+        Pts[High(Pts)] := Point(I + 1, R.Top);
+      end;
+    if Length(Pts) > 1 then
+      DoPolyline(Pts);
 
-SetLength(Pts, 0);
-for I := R.Left to R.Right - 1 do
-  if ((I - R.Left) mod 2) = 0 then
-  begin
-    SetLength(Pts, Length(Pts) + 2);
-    Pts[High(Pts) - 1] := Point(I, R.Bottom - 1);
-    Pts[High(Pts)] := Point(I + 1, R.Bottom - 1);
-  end;
-if Length(Pts) > 1 then
-  DoPolyline(Pts);
+    SetLength(Pts, 0);
+    for I := R.Left to R.Right - 1 do
+      if ((I - R.Left) mod 2) = 0 then
+      begin
+        SetLength(Pts, Length(Pts) + 2);
+        Pts[High(Pts) - 1] := Point(I, R.Bottom - 1);
+        Pts[High(Pts)] := Point(I + 1, R.Bottom - 1);
+      end;
+    if Length(Pts) > 1 then
+      DoPolyline(Pts);
 
-SetLength(Pts, 0);
-for I := R.Top to R.Bottom - 1 do
-  if ((I - R.Top) mod 2) = 0 then
-  begin
-    SetLength(Pts, Length(Pts) + 2);
-    Pts[High(Pts) - 1] := Point(R.Left, I);
-    Pts[High(Pts)] := Point(R.Left, I + 1);
-  end;
-if Length(Pts) > 1 then
-  DoPolyline(Pts);
+    SetLength(Pts, 0);
+    for I := R.Top to R.Bottom - 1 do
+      if ((I - R.Top) mod 2) = 0 then
+      begin
+        SetLength(Pts, Length(Pts) + 2);
+        Pts[High(Pts) - 1] := Point(R.Left, I);
+        Pts[High(Pts)] := Point(R.Left, I + 1);
+      end;
+    if Length(Pts) > 1 then
+      DoPolyline(Pts);
 
-SetLength(Pts, 0);
-for I := R.Top to R.Bottom - 1 do
-  if ((I - R.Top) mod 2) = 0 then
-  begin
-    SetLength(Pts, Length(Pts) + 2);
-    Pts[High(Pts) - 1] := Point(R.Right - 1, I);
-    Pts[High(Pts)] := Point(R.Right - 1, I + 1);
-  end;
-if Length(Pts) > 1 then
-  DoPolyline(Pts);
+    SetLength(Pts, 0);
+    for I := R.Top to R.Bottom - 1 do
+      if ((I - R.Top) mod 2) = 0 then
+      begin
+        SetLength(Pts, Length(Pts) + 2);
+        Pts[High(Pts) - 1] := Point(R.Right - 1, I);
+        Pts[High(Pts)] := Point(R.Right - 1, I + 1);
+      end;
+    if Length(Pts) > 1 then
+      DoPolyline(Pts);
 
   finally
     FLazPen.Color := OldColor;
@@ -3818,23 +3818,23 @@ begin
   OldPenWidth := FLazPen.Width;
   try
     FLazPen.Width := 1;
-for I := 0 to FrameWidth - 1 do
-begin
-  FLazPen.Color := TopColor;
-  AddAALine(R.Left + I, R.Bottom - 1 - I, R.Left + I, R.Top + I,
-    1, ColorToVec4(TopColor));
-  AddAALine(R.Left + I, R.Top + I, R.Right - 1 - I, R.Top + I,
-    1, ColorToVec4(TopColor));
+    for I := 0 to FrameWidth - 1 do
+    begin
+      FLazPen.Color := TopColor;
+      AddAALine(R.Left + I, R.Bottom - 1 - I, R.Left + I, R.Top + I,
+        1, ColorToVec4(TopColor));
+      AddAALine(R.Left + I, R.Top + I, R.Right - 1 - I, R.Top + I,
+        1, ColorToVec4(TopColor));
 
-  FLazPen.Color := BottomColor;
-  AddAALine(R.Right - 1 - I, R.Top + I, R.Right - 1 - I, R.Bottom - 1 -
-    I, 1, ColorToVec4(BottomColor));
-  AddAALine(R.Right - 1 - I, R.Bottom - 1 - I, R.Left + I, R.Bottom -
-    1 - I, 1, ColorToVec4(BottomColor));
-end;
+      FLazPen.Color := BottomColor;
+      AddAALine(R.Right - 1 - I, R.Top + I, R.Right - 1 - I, R.Bottom -
+        1 - I, 1, ColorToVec4(BottomColor));
+      AddAALine(R.Right - 1 - I, R.Bottom - 1 - I, R.Left + I, R.Bottom -
+        1 - I, 1, ColorToVec4(BottomColor));
+    end;
 
-InflateRect(R, -FrameWidth, -FrameWidth);
-ARect := R;
+    InflateRect(R, -FrameWidth, -FrameWidth);
+    ARect := R;
 
   finally
     FLazPen.Color := OldPenColor;
@@ -3882,11 +3882,11 @@ begin
   Bmp := TBitmap.Create;
   try
     Bmp.Canvas.Font.Assign(FLazFont);
-TM.Height := Bmp.Canvas.TextHeight('Mg');
-TM.Ascender := TM.Height;
-TM.Descender := 0;
+    TM.Height := Bmp.Canvas.TextHeight('Mg');
+    TM.Ascender := TM.Height;
+    TM.Descender := 0;
 
-Result := True;
+    Result := True;
 
   finally
     Bmp.Free;
