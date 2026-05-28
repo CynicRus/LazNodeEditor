@@ -42,16 +42,18 @@ type
     property Nodes[AIndex: integer]: TCustomNode read GetNode;
   end;
 
+  { TNoRefCountObject }
+
   TNoRefCountObject = class(TObject, IInterface)
   protected
-    function QueryInterface(constref IID: TGUID; out Obj): HResult; stdcall;
-    function _AddRef: LongInt; stdcall;
-    function _Release: LongInt; stdcall;
+    function QueryInterface(constref IID: TGUID; out Obj): HResult; {$IFDEF MSWINDOWS}stdcall;{$ELSE}cdecl;{$ENDIF}
+    function _AddRef: LongInt; {$IFDEF MSWINDOWS}stdcall;{$ELSE}cdecl;{$ENDIF}
+    function _Release: LongInt; {$IFDEF MSWINDOWS}stdcall;{$ELSE}cdecl;{$ENDIF}
   end;
 
 implementation
 
-function TNoRefCountObject.QueryInterface(constref IID: TGUID; out Obj): HResult; stdcall;
+function TNoRefCountObject.QueryInterface(constref IID: TGUID; out Obj): HResult; {$IFDEF MSWINDOWS}stdcall;{$ELSE}cdecl;{$ENDIF}
 begin
   if GetInterface(IID, Obj) then
     Result := 0
@@ -59,12 +61,12 @@ begin
     Result := LongInt($80004002);
 end;
 
-function TNoRefCountObject._AddRef: LongInt; stdcall;
+function TNoRefCountObject._AddRef: LongInt; {$IFDEF MSWINDOWS}stdcall;{$ELSE}cdecl;{$ENDIF}
 begin
   Result := -1;
 end;
 
-function TNoRefCountObject._Release: LongInt; stdcall;
+function TNoRefCountObject._Release: LongInt; {$IFDEF MSWINDOWS}stdcall;{$ELSE}cdecl;{$ENDIF}
 begin
   Result := -1;
 end;
