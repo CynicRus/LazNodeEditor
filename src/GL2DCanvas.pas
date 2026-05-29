@@ -2709,6 +2709,7 @@ end;
 procedure TGL2DCanvas.EndDraw;
 var
   S: string;
+  Ver: string;
   OldFontColor: TColor;
   OldBrushStyle: TBrushStyle;
   OldClip: TRect;
@@ -2722,7 +2723,8 @@ begin
   FLastFrameTimeMs := GetTickMs - FFrameStartTime;
 
   S := Format('%.2f ms', [FLastFrameTimeMs]);
-
+  S := S + Format(' Batches: %d,  Vertices: %d , Indices: %d', [Length(FBatches),FVertexCount,  FIndexCount] );
+  Ver := Format('GL_VENDOR   = %s, GL_RENDERER = %s, GL_VERSION  = %s', [StrPas(PChar(glGetString(GL_VENDOR))), StrPas(PChar(glGetString(GL_RENDERER))), StrPas(PChar(glGetString(GL_VERSION)))]);
   OldFontColor := FLazFont.Color;
   OldBrushStyle := FLazBrush.Style;
   OldClip := FClipRect;
@@ -2735,6 +2737,7 @@ begin
     ApplyScissor;
 
     DoTextOut(6, 6, S);
+    DoTextOut(6, 28, Ver);
   finally
     FLazFont.Color := OldFontColor;
     FLazBrush.Style := OldBrushStyle;
