@@ -150,7 +150,6 @@ type
     FHeight: integer;
     FClipRect: TRect;
     FClipping: boolean;
-
     FProgram: GLuint;
     FVAO: GLuint;
     FVBO: GLuint;
@@ -184,7 +183,6 @@ type
     FVBOCapacity: integer;
     FCurrentTexture: GLuint;
 
-    FCurrentPrimitiveKind: TPrimitiveKind;
     FLastPenColor: TColor;
     FLastPenWidth: integer;
     FLastPenStyle: TPenStyle;
@@ -195,15 +193,21 @@ type
     FLastFontColor: TColor;
     FLastFontStyle: TFontStyles;
 
-    FAppliedPenStyle: TPenStyle;
-    FAppliedBrushStyle: TBrushStyle;
-
     FGlyphCache: TGlyphCache;
     FAtlasTex: GLuint;
     FAtlasWidth, FAtlasHeight: integer;
     FAtlasX, FAtlasY: integer;
     FAtlasRowHeight: integer;
     FAtlasData: TBytes;
+
+    FBatches: array of record
+      StartIndex: integer;
+      TexID: GLuint;
+      PenStyle: TPenStyle;
+      BrushStyle: TBrushStyle;
+      PenParams: TVec4;
+      end;
+    FCurrentBatchIndex: integer;
 
     procedure PenChanged(Sender: TObject);
     procedure BrushChanged(Sender: TObject);
@@ -223,7 +227,8 @@ type
     procedure EnsureVertexCapacity(AExtra: integer);
     procedure Flush;
 
-    procedure SetActiveTexture(ATexID: GLuint);
+    procedure PrepareBatch(ATexID: GLuint; APenStyle: TPenStyle;
+      ABrushStyle: TBrushStyle);
 
     function ColorToVec4(const AColor: TColor; AAlpha: single = 1.0): TVec4;
     function AdjustColor(const AColor: TColor; AFactor: integer): TColor;
@@ -249,7 +254,8 @@ type
     procedure AddAARoundRectFill(const X1, Y1, X2, Y2, ARadiusX, ARadiusY: single;
       const AColor: TVec4);
     procedure AddAARoundRectStroke(
-      const X1, Y1, X2, Y2, ARadiusX, ARadiusY, AStrokeWidth: single; const AColor: TVec4);
+      const X1, Y1, X2, Y2, ARadiusX, ARadiusY, AStrokeWidth: single;
+      const AColor: TVec4);
 
     procedure AddTexturedQuad(const X1, Y1, X2, Y2: single;
       const U1, V1, U2, V2: single; ATexID: GLuint; const AColor: TVec4);
@@ -267,18 +273,16 @@ type
     function GraphicToImage(ASrc: TGraphic): TFPCustomImage;
     function PointToEllipseAngle(const R: TRect; PX, PY: integer): single;
     {$IFDEF MSWINDOWS}
-    function CreateTextTexture_Windows(const Text: ansistring; out W, H: integer): GLuint;
+    function CreateTextTexture_Windows(const Text: ansistring;
+      out W, H: integer): GLuint;
     {$ELSE}
+
 function CreateTextTexture_Linux(const Text: ansistring; out W, H: Integer): GLuint;
     {$ENDIF}
     function CreateTextureFromRGBA(const Buf: Pointer; W, H: integer): GLuint;
-
     procedure InitAtlas;
     procedure ResetAtlas;
     function GetGlyphInfo(AChar: UCS4Char): TGlyphInfo;
-
-    procedure ApplyPenStyle;
-    procedure ApplyBrushStyle;
 
   protected
     function DoCreateDefaultFont: TFPCustomFont; override;
@@ -286,7 +290,6 @@ function CreateTextTexture_Linux(const Text: ansistring; out W, H: Integer): GLu
     function DoCreateDefaultBrush: TFPCustomBrush; override;
     procedure SetColor(x, y: integer; const Value: TFPColor); override;
     function GetColor(x, y: integer): TFPColor; override;
-
     procedure SetHeight(AValue: integer); override;
     function GetHeight: integer; override;
     procedure SetWidth(AValue: integer); override;
@@ -328,7 +331,6 @@ function CreateTextTexture_Linux(const Text: ansistring; out W, H: Integer): GLu
     destructor Destroy; override;
     procedure BeginDraw; virtual;
     procedure EndDraw; virtual;
-
     procedure MoveTo(X, Y: integer);
     procedure LineTo(X, Y: integer);
 
@@ -720,7 +722,6 @@ begin
     if (B2 and $C0) <> $80 then
       Exit;
     CodePoint := ((B1 and $1F) shl 6) or (B2 and $3F);
-
     if CodePoint < $80 then
     begin
       CodePoint := 0;
@@ -738,7 +739,6 @@ begin
     B3 := byte((p + 2)^);
     if ((B2 and $C0) <> $80) or ((B3 and $C0) <> $80) then
       Exit;
-
     CodePoint := ((B1 and $0F) shl 12) or ((B2 and $3F) shl 6) or (B3 and $3F);
 
     if (CodePoint < $800) or ((CodePoint >= $D800) and (CodePoint <= $DFFF)) then
@@ -759,7 +759,6 @@ begin
     B4 := byte((p + 3)^);
     if ((B2 and $C0) <> $80) or ((B3 and $C0) <> $80) or ((B4 and $C0) <> $80) then
       Exit;
-
     CodePoint := ((B1 and $07) shl 18) or ((B2 and $3F) shl 12) or
       ((B3 and $3F) shl 6) or (B4 and $3F);
 
@@ -869,7 +868,6 @@ begin
   FCurrentTexture := 0;
   FVBOCapacity := 0;
 
-  FCurrentPrimitiveKind := pkSolid;
   FLastPenColor := clBlack;
   FLastPenWidth := 1;
   FLastPenStyle := psSolid;
@@ -880,9 +878,6 @@ begin
   FLastFontColor := clBlack;
   FLastFontStyle := [];
 
-  FAppliedPenStyle := psClear;
-  FAppliedBrushStyle := bsClear;
-
   FGlyphCache := TGlyphCache.Create;
   FAtlasTex := 0;
   FAtlasWidth := 0;
@@ -890,6 +885,9 @@ begin
   FAtlasX := 0;
   FAtlasY := 0;
   FAtlasRowHeight := 0;
+
+  SetLength(FBatches, 0);
+  FCurrentBatchIndex := -1;
 end;
 
 constructor TGL2DCanvas.Create(AControl: TOpenGLControl);
@@ -999,7 +997,7 @@ begin
     ApplyScissor;
     FLazBrush.Style := bsSolid;
     FLazBrush.Color := FPColorToTColor(Value);
-    ApplyBrushStyle;
+    PrepareBatch(0, FLazPen.Style, FLazBrush.Style);
     AddSolidRect(x, y, x + 1, y + 1, FPColorToVec4(Value));
     Flush;
 
@@ -1328,7 +1326,6 @@ begin
         LRUInfo := Pair.Value;
       end;
     end;
-
     if LRUKey = 0 then Break;
 
     FImgCache.Remove(LRUInfo.ImgPtr);
@@ -1397,28 +1394,47 @@ begin
   SetLength(FVertices, NewCap);
 end;
 
-procedure TGL2DCanvas.SetActiveTexture(ATexID: GLuint);
+procedure TGL2DCanvas.PrepareBatch(ATexID: GLuint; APenStyle: TPenStyle;
+  ABrushStyle: TBrushStyle);
+var
+  DashParams: TVec4;
+  PenStyleInt, BrushStyleInt: integer;
+  NeedNewBatch: boolean;
 begin
-  if not FDrawing then
-    Exit;
+  if not FDrawing then Exit;
 
-  Flush;
+  NeedNewBatch := False;
 
-  FCurrentTexture := ATexID;
-
-  glActiveTexture(GL_TEXTURE0);
-  if ATexID <> 0 then
-    glBindTexture(GL_TEXTURE_2D, ATexID)
+  if (FCurrentBatchIndex < 0) then
+    NeedNewBatch := True
   else
-    glBindTexture(GL_TEXTURE_2D, 0);
+    with FBatches[FCurrentBatchIndex] do
+    begin
+      if (TexID <> ATexID) or (PenStyle <> APenStyle) or (BrushStyle <> ABrushStyle) then
+        NeedNewBatch := True;
+    end;
 
-  glUseProgram(FProgram);
-  glUniform1i(FUniformTex, 0);
+  if NeedNewBatch then
+  begin
+    SetLength(FBatches, Length(FBatches) + 1);
+    FCurrentBatchIndex := High(FBatches);
+    with FBatches[FCurrentBatchIndex] do
+    begin
+      StartIndex := FVertexCount;
+      TexID := ATexID;
+      PenStyle := APenStyle;
+      BrushStyle := ABrushStyle;
+    end;
+  end;
 end;
 
 procedure TGL2DCanvas.Flush;
 var
   DataSize: integer;
+  i: integer;
+  StartV, CountV: integer;
+  DashParams: TVec4;
+  PenStyleInt, BrushStyleInt: integer;
 begin
   if FVertexCount <= 0 then Exit;
 
@@ -1426,10 +1442,6 @@ begin
 
   glUseProgram(FProgram);
   SetProjection;
-
-  glActiveTexture(GL_TEXTURE0);
-  glBindTexture(GL_TEXTURE_2D, FCurrentTexture);
-  glUniform1i(FUniformTex, 0);
 
   glBindVertexArray(FVAO);
   glBindBuffer(GL_ARRAY_BUFFER, FVBO);
@@ -1442,12 +1454,67 @@ begin
 
   glBufferSubData(GL_ARRAY_BUFFER, 0, DataSize, @FVertices[0]);
 
-  glDrawArrays(GL_TRIANGLES, 0, FVertexCount);
+  for i := 0 to High(FBatches) do
+  begin
+    if i < High(FBatches) then
+      CountV := FBatches[i + 1].StartIndex - FBatches[i].StartIndex
+    else
+      CountV := FVertexCount - FBatches[i].StartIndex;
+    if CountV <= 0 then Continue;
+
+    if FCurrentTexture <> FBatches[i].TexID then
+    begin
+      glActiveTexture(GL_TEXTURE0);
+      glBindTexture(GL_TEXTURE_2D, FBatches[i].TexID);
+      glUniform1i(FUniformTex, 0);
+      FCurrentTexture := FBatches[i].TexID;
+    end;
+
+    begin
+      PenStyleInt := 0;
+      DashParams := MakeVec4(0, 0, 0, 0);
+      case FBatches[i].PenStyle of
+        psSolid: PenStyleInt := 0;
+        psDash: begin
+          PenStyleInt := 1;
+          DashParams := MakeVec4(10.0, 5.0, 0.0, 0.0);
+        end;
+        psDot: begin
+          PenStyleInt := 1;
+          DashParams := MakeVec4(2.0, 2.0, 0.0, 0.0);
+        end;
+        psDashDot, psDashDotDot: begin
+          PenStyleInt := 1;
+          DashParams := MakeVec4(10.0, 3.0, 2.0, 3.0);
+        end;
+      end;
+      glUniform1i(FUniformPenStyle, PenStyleInt);
+      glUniform4f(FUniformDashParams, DashParams.X, DashParams.Y,
+        DashParams.Z, DashParams.W);
+
+      BrushStyleInt := 0;
+      case FBatches[i].BrushStyle of
+        bsSolid: BrushStyleInt := 0;
+        bsHorizontal: BrushStyleInt := 1;
+        bsVertical: BrushStyleInt := 2;
+        bsFDiagonal: BrushStyleInt := 3;
+        bsBDiagonal: BrushStyleInt := 4;
+        bsCross: BrushStyleInt := 5;
+        bsDiagCross: BrushStyleInt := 6;
+      end;
+      glUniform1i(FUniformBrushStyle, BrushStyleInt);
+    end;
+
+    glDrawArrays(GL_TRIANGLES, FBatches[i].StartIndex, CountV);
+
+  end;
 
   glBindBuffer(GL_ARRAY_BUFFER, 0);
   glBindVertexArray(0);
 
   FVertexCount := 0;
+  SetLength(FBatches, 0);
+  FCurrentBatchIndex := -1;
 end;
 
 procedure TGL2DCanvas.AddVertex(const APos, ALocal: TVec2;
@@ -2068,7 +2135,7 @@ begin
   if ATexID = 0 then
     Exit;
 
-  SetActiveTexture(ATexID);
+  PrepareBatch(ATexID, FLazPen.Style, FLazBrush.Style);
 
   D.X := 0;
   D.Y := 0;
@@ -2147,7 +2214,6 @@ begin
   begin
     ImgSize := AImage.Width * AImage.Height * 4;
     EvictLRUImageTextures(ImgSize);
-
     FImgCache.Add(ImgPtr, Result);
 
     Info.ImgPtr := ImgPtr;
@@ -2192,7 +2258,6 @@ begin
     GlyphBitmap.Transparent := False;
     GlyphBitmap.Canvas.Font.Assign(FLazFont);
     CharStr := unicodestring(unicodechar(AChar));
-
     InkW := GlyphBitmap.Canvas.TextWidth(CharStr);
     InkH := GlyphBitmap.Canvas.TextHeight(CharStr);
 
@@ -2347,21 +2412,14 @@ begin
   FCurrentTexture := 0;
   FDrawing := True;
 
+  SetLength(FBatches, 0);
+  FCurrentBatchIndex := -1;
+
   glUseProgram(FProgram);
-  glUniform1i(FUniformPenStyle, 0);
-  glUniform4f(FUniformDashParams, 0, 0, 0, 0);
-  glUniform1i(FUniformBrushStyle, 0);
 
-  FAppliedPenStyle := psClear;
-  FAppliedBrushStyle := bsClear;
-
-  if FAtlasTex <> 0 then
-  begin
-    glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D, FAtlasTex);
-    glUniform1i(FUniformTex, 0);
-    FCurrentTexture := FAtlasTex;
-  end;
+  FCurrentTexture := 0;
+  glActiveTexture(GL_TEXTURE0);
+  glBindTexture(GL_TEXTURE_2D, 0);
 
   Inc(FCurrentFrame);
 end;
@@ -2380,97 +2438,10 @@ begin
     FControl.SwapBuffers;
 end;
 
-procedure TGL2DCanvas.ApplyPenStyle;
-var
-  Style: TPenStyle;
-  DashParams: TVec4;
-  PenStyleInt: integer;
-begin
-  Style := FLazPen.Style;
-  if Style = FAppliedPenStyle then Exit;
-
-  Flush;
-  FAppliedPenStyle := Style;
-
-  PenStyleInt := 0;
-  DashParams := MakeVec4(0, 0, 0, 0);
-
-  case Style of
-    psSolid:
-    begin
-      PenStyleInt := 0;
-    end;
-    psDash:
-    begin
-      PenStyleInt := 1;
-      DashParams := MakeVec4(10.0, 5.0, 0.0, 0.0);
-    end;
-    psDot:
-    begin
-      PenStyleInt := 1;
-      DashParams := MakeVec4(2.0, 2.0, 0.0, 0.0);
-    end;
-    psDashDot:
-    begin
-      PenStyleInt := 1;
-      DashParams := MakeVec4(10.0, 3.0, 2.0, 3.0);
-    end;
-    psDashDotDot:
-    begin
-      PenStyleInt := 1;
-      DashParams := MakeVec4(10.0, 3.0, 2.0, 3.0);
-    end;
-    psClear:
-    begin
-      PenStyleInt := 0;
-    end;
-    else
-    begin
-      PenStyleInt := 0;
-    end;
-  end;
-
-  glUseProgram(FProgram);
-  glUniform1i(FUniformPenStyle, PenStyleInt);
-  glUniform4f(FUniformDashParams, DashParams.X, DashParams.Y, DashParams.Z,
-    DashParams.W);
-end;
-
-procedure TGL2DCanvas.ApplyBrushStyle;
-var
-  Style: TBrushStyle;
-  BrushStyleInt: integer;
-begin
-  Style := FLazBrush.Style;
-  if Style = FAppliedBrushStyle then Exit;
-
-  Flush;
-  FAppliedBrushStyle := Style;
-
-  BrushStyleInt := 0;
-
-  case Style of
-    bsSolid: BrushStyleInt := 0;
-    bsHorizontal: BrushStyleInt := 1;
-    bsVertical: BrushStyleInt := 2;
-    bsFDiagonal: BrushStyleInt := 3;
-    bsBDiagonal: BrushStyleInt := 4;
-    bsCross: BrushStyleInt := 5;
-    bsDiagCross: BrushStyleInt := 6;
-    bsClear: BrushStyleInt := 0;
-    bsPattern: BrushStyleInt := 0;
-    else
-      BrushStyleInt := 0;
-  end;
-
-  glUseProgram(FProgram);
-  glUniform1i(FUniformBrushStyle, BrushStyleInt);
-end;
-
 procedure TGL2DCanvas.DoLine(x1, y1, x2, y2: integer);
 begin
   if FLazPen.Style = psClear then Exit;
-  ApplyPenStyle;
+  PrepareBatch(0, FLazPen.Style, FLazBrush.Style);
   AddAALine(x1, y1, x2, y2, Max(1, FLazPen.Width), ColorToVec4(FLazPen.Color));
 end;
 
@@ -2485,7 +2456,7 @@ var
   i: integer;
 begin
   if (Length(points) < 2) or (FLazPen.Style = psClear) then Exit;
-  ApplyPenStyle;
+  PrepareBatch(0, FLazPen.Style, FLazBrush.Style);
 
   for i := 0 to High(points) - 1 do
     AddAALine(points[i].X, points[i].Y,
@@ -2501,7 +2472,7 @@ var
   i: integer;
 begin
   if (Length(points) < 2) or (FLazPen.Style = psClear) then Exit;
-  ApplyPenStyle;
+  PrepareBatch(0, FLazPen.Style, FLazBrush.Style);
 
   for i := 0 to High(points) - 1 do
     AddAALine(points[i].X, points[i].Y,
@@ -2523,7 +2494,7 @@ var
   Z: TVec2;
 begin
   if (Length(points) < 3) or (FLazBrush.Style = bsClear) then Exit;
-  ApplyBrushStyle;
+  PrepareBatch(0, FLazPen.Style, FLazBrush.Style);
 
   Col := ColorToVec4(FLazBrush.Color);
   D.X := 0;
@@ -2554,7 +2525,6 @@ begin
     C.Data0 := D;
     C.Color := Col;
     C.Kind := Ord(pkSolid);
-
     AddTriangle(A, B, C);
 
   end;
@@ -2566,7 +2536,7 @@ var
 begin
   if FLazPen.Style = psClear then Exit;
   R := NormalizeRect(Bounds);
-  ApplyPenStyle;
+  PrepareBatch(0, FLazPen.Style, FLazBrush.Style);
   AddAARectStroke(R.Left, R.Top, R.Right, R.Bottom,
     Max(1, FLazPen.Width), ColorToVec4(FLazPen.Color));
 end;
@@ -2576,7 +2546,7 @@ var
   R: TRect;
 begin
   if FLazBrush.Style = bsClear then Exit;
-  ApplyBrushStyle;
+  PrepareBatch(0, FLazPen.Style, FLazBrush.Style);
   R := NormalizeRect(Bounds);
   AddAARectFill(R.Left, R.Top, R.Right, R.Bottom,
     ColorToVec4(FLazBrush.Color));
@@ -2588,7 +2558,7 @@ var
 begin
   if FLazPen.Style = psClear then Exit;
   R := NormalizeRect(Bounds);
-  ApplyPenStyle;
+  PrepareBatch(0, FLazPen.Style, FLazBrush.Style);
   AddAAEllipseStroke(R.Left, R.Top, R.Right, R.Bottom,
     Max(1, FLazPen.Width), ColorToVec4(FLazPen.Color));
 end;
@@ -2598,7 +2568,7 @@ var
   R: TRect;
 begin
   if FLazBrush.Style = bsClear then Exit;
-  ApplyBrushStyle;
+  PrepareBatch(0, FLazPen.Style, FLazBrush.Style);
   R := NormalizeRect(Bounds);
   AddAAEllipseFill(R.Left, R.Top, R.Right, R.Bottom,
     ColorToVec4(FLazBrush.Color));
@@ -2627,7 +2597,6 @@ begin
     Bmp.Canvas.Font.Assign(FLazFont);
     W := Bmp.Canvas.TextWidth(Text);
     H := Bmp.Canvas.TextHeight(Text);
-
     if W <= 0 then W := 1;
     if H <= 0 then H := Max(1, FLazFont.Size + 4);
 
@@ -2713,48 +2682,48 @@ begin
   try
     Bmp.PixelFormat := pf32bit;
     Bmp.Canvas.Font.Assign(FLazFont);
-W := Bmp.Canvas.TextWidth(Text);
-H := Bmp.Canvas.TextHeight(Text);
+    W := Bmp.Canvas.TextWidth(Text);
+    H := Bmp.Canvas.TextHeight(Text);
 
-if W <= 0 then W := 1;
-if H <= 0 then H := Max(1, FLazFont.Size + 4);
+    if W <= 0 then W := 1;
+    if H <= 0 then H := Max(1, FLazFont.Size + 4);
 
-Bmp.SetSize(W, H);
+    Bmp.SetSize(W, H);
 
-Bmp.Canvas.Brush.Style := bsSolid;
-Bmp.Canvas.Brush.Color := clBlack;
-Bmp.Canvas.FillRect(0, 0, W, H);
+    Bmp.Canvas.Brush.Style := bsSolid;
+    Bmp.Canvas.Brush.Color := clBlack;
+    Bmp.Canvas.FillRect(0, 0, W, H);
 
-Bmp.Canvas.Font.Assign(FLazFont);
-Bmp.Canvas.Font.Color := clWhite;
-Bmp.Canvas.Brush.Style := bsClear;
-Bmp.Canvas.TextOut(0, 0, Text);
+    Bmp.Canvas.Font.Assign(FLazFont);
+    Bmp.Canvas.Font.Color := clWhite;
+    Bmp.Canvas.Brush.Style := bsClear;
+    Bmp.Canvas.TextOut(0, 0, Text);
 
-Img := Bmp.CreateIntfImage;
-if Img = nil then Exit;
+    Img := Bmp.CreateIntfImage;
+    if Img = nil then Exit;
 
-FontCol := ColorToRGB(FLazFont.Color);
-FR := Red(FontCol);
-FG := Green(FontCol);
-FB := Blue(FontCol);
+    FontCol := ColorToRGB(FLazFont.Color);
+    FR := Red(FontCol);
+    FG := Green(FontCol);
+    FB := Blue(FontCol);
 
-BufSize := W * H * 4;
-GetMem(RGBA, BufSize);
-P := RGBA;
+    BufSize := W * H * 4;
+    GetMem(RGBA, BufSize);
+    P := RGBA;
 
-for YY := 0 to H - 1 do
-  for XX := 0 to W - 1 do
-  begin
-    C := Img.Colors[XX, YY];
-    Alpha := ((C.Red shr 8) + (C.Green shr 8) + (C.Blue shr 8)) div 3;
-
+    for YY := 0 to H - 1 do
+      for XX := 0 to W - 1 do
+      begin
+        C := Img.Colors[XX, YY];
+        Alpha := ((C.Red shr 8) + (C.Green shr 8) + (C.Blue shr 8)) div 3;
     P^ := FR; Inc(P);
     P^ := FG; Inc(P);
     P^ := FB; Inc(P);
     P^ := Alpha; Inc(P);
+
   end;
 
-Result := CreateTextureFromRGBA(RGBA, W, H);
+  Result := CreateTextureFromRGBA(RGBA, W, H);
 
   finally
     if Assigned(RGBA) then
@@ -2767,11 +2736,10 @@ end;
 
 procedure TGL2DCanvas.DoTextOut(x, y: integer; Text: ansistring);
 var
-  I, Len: integer;
-  CodePoint: cardinal;
-  CharLen: SizeInt;
-  CurX: integer;
-  GlyphInfo: TGlyphInfo;
+  Key: string;
+  Entry: TTextCacheEntry;
+  TexID: GLuint;
+  W, H: integer;
   TextColor: TVec4;
 begin
   if Text = '' then Exit;
@@ -2780,34 +2748,41 @@ begin
   FControl.MakeCurrent;
   EnsureGLReady;
 
-  TextColor := ColorToVec4(FLazFont.Color, 1.0);
-  CurX := x;
-  Len := Length(Text);
-  I := 1;
+  // === CACHED SINGLE-TEXTURE TEXT (fast + correct) ===
+  Key := Format('%s|%s|%d|%d|%d', [Text, FLazFont.Name,
+    FLazFont.Size, integer(FLazFont.Style), FLazFont.Color]);
 
-  while I <= Len do
+  if FTextCache.TryGetValue(Key, Entry) then
   begin
-    CharLen := UTF8CodepointToUnicode(@Text[I], CodePoint);
-    if CharLen <= 0 then
-    begin
-      CodePoint := Ord('?');
-      CharLen := 1;
-    end;
-    GlyphInfo := GetGlyphInfo(CodePoint);
+    // Fast path - reuse cached texture
+    TexID := Entry.TexID;
+    W := Entry.Width;
+    H := Entry.Height;
+    Entry.LastUsedFrame := FCurrentFrame;
+    FTextCache[Key] := Entry;
+  end
+  else
+  begin
+    // First time - render to texture
+    {$IFDEF MSWINDOWS}
+    TexID := CreateTextTexture_Windows(Text, W, H);
+    {$ELSE}
+    TexID := CreateTextTexture_Linux(Text, W, H);
+    {$ENDIF}
 
-    AddTexturedQuad(
-      CurX - GLYPH_PAD_X,
-      y - GLYPH_PAD_Y,
-      CurX - GLYPH_PAD_X + GlyphInfo.Width,
-      y - GLYPH_PAD_Y + GlyphInfo.Height,
-      GlyphInfo.U0, GlyphInfo.V0, GlyphInfo.U1, GlyphInfo.V1,
-      GlyphInfo.TexID,
-      TextColor);
+    if TexID = 0 then Exit;
 
-    Inc(CurX, GlyphInfo.Advance);
-    Inc(I, CharLen);
-
+    Entry.TexID := TexID;
+    Entry.Width := W;
+    Entry.Height := H;
+    Entry.LastUsedFrame := FCurrentFrame;
+    FTextCache.Add(Key, Entry);
   end;
+
+  TextColor := ColorToVec4(FLazFont.Color, 1.0);
+
+  PrepareBatch(TexID, FLazPen.Style, FLazBrush.Style);
+  AddTexturedQuad(x, y, x + W, y + H, 0, 0, 1, 1, TexID, TextColor);
 end;
 
 procedure TGL2DCanvas.DoGetTextSize(Text: ansistring; var w, h: integer);
@@ -2841,7 +2816,6 @@ begin
       CharLen := 1;
     end;
     GlyphInfo := GetGlyphInfo(CodePoint);
-
     Inc(w, GlyphInfo.Advance);
     if GlyphInfo.Height > MaxHeight then
       MaxHeight := GlyphInfo.Height;
@@ -2874,7 +2848,7 @@ var
   R: TRect;
 begin
   if FLazBrush.Style = bsClear then Exit;
-  ApplyBrushStyle;
+  PrepareBatch(0, FLazPen.Style, FLazBrush.Style);
 
   if FClipping then
     R := NormalizeRect(FClipRect)
@@ -2945,7 +2919,7 @@ var
 
 begin
   if FLazBrush.Style = bsClear then Exit;
-  ApplyBrushStyle;
+  PrepareBatch(0, FLazPen.Style, FLazBrush.Style);
 
   CX := (x1 + x2) / 2;
   CY := (y1 + y2) / 2;
@@ -2992,7 +2966,6 @@ begin
     V2.Data0 := D;
     V2.Color := C;
     V2.Kind := Ord(pkSolid);
-
     AddTriangle(V0, V1, V2);
     P1 := P2;
 
@@ -3044,7 +3017,6 @@ begin
       Inc(i, 4);
     end;
     if Count = 0 then AddBezierPoint(p0);
-
     Steps := 20;
     dt := 1.0 / Steps;
     for j := 1 to Steps do
@@ -3097,12 +3069,12 @@ procedure TGL2DCanvas.RoundRect(X1, Y1, X2, Y2, RX, RY: integer);
 begin
   if FLazBrush.Style <> bsClear then
   begin
-    ApplyBrushStyle;
+    PrepareBatch(0, FLazPen.Style, FLazBrush.Style);
     AddAARoundRectFill(X1, Y1, X2, Y2, RX, RY, ColorToVec4(FLazBrush.Color));
   end;
   if FLazPen.Style <> psClear then
   begin
-    ApplyPenStyle;
+    PrepareBatch(0, FLazPen.Style, FLazBrush.Style);
     AddAARoundRectStroke(X1, Y1, X2, Y2, RX, RY, Max(1, FLazPen.Width),
       ColorToVec4(FLazPen.Color));
   end;
@@ -3119,7 +3091,7 @@ var
 begin
   R := NormalizeRect(ARect);
   if (R.Right <= R.Left) or (R.Bottom <= R.Top) then Exit;
-  ApplyBrushStyle;
+  PrepareBatch(0, FLazPen.Style, FLazBrush.Style);
 
   D := MakeVec4(0, 0, 0, 0);
   Z := MakeVec2(0, 0);
@@ -3210,6 +3182,7 @@ begin
   case Style of
     bvRaised:
     begin
+      PrepareBatch(0, FLazPen.Style, FLazBrush.Style);
       FLazPen.Color := clBtnHighlight;
       DoRectangle(R);
       InflateRect(R, -FrameWidth, -FrameWidth);
@@ -3218,6 +3191,7 @@ begin
     end;
     bvLowered:
     begin
+      PrepareBatch(0, FLazPen.Style, FLazBrush.Style);
       FLazPen.Color := clBtnShadow;
       DoRectangle(R);
       InflateRect(R, -FrameWidth, -FrameWidth);
@@ -3435,6 +3409,7 @@ begin
 
   if FLazPen.Style <> psClear then
   begin
+    PrepareBatch(0, FLazPen.Style, FLazBrush.Style);
     DoPolyline(Slice(Pts, Count));
     AddAALine(
       Pts[Count - 1].X, Pts[Count - 1].Y,
@@ -3465,7 +3440,6 @@ begin
     for Y := 0 to Bmp.Height - 1 do
       for X := 0 to Bmp.Width - 1 do
         Img.Colors[X, Y] := Bmp.Canvas.Colors[X, Y];
-
     Result := Img;
 
   finally
@@ -3585,7 +3559,6 @@ begin
     TmpImg := TFPMemoryImage.Create(DstR.Right - DstR.Left, DstR.Bottom - DstR.Top);
     try
       TransparentFP := TColorToFPColor(ATransparentColor);
-
       for Y := 0 to TmpImg.Height - 1 do
         for X := 0 to TmpImg.Width - 1 do
         begin
@@ -3704,11 +3677,11 @@ begin
   OldWidth := FLazPen.Width;
   OldStyle := FLazPen.Style;
   try
+    PrepareBatch(0, FLazPen.Style, FLazBrush.Style);
     FLazPen.Color := clBlack;
     FLazPen.Width := 1;
     FLazPen.Style := psSolid;
     SetLength(Pts, 0);
-
     for I := R.Left to R.Right - 1 do
       if ((I - R.Left) mod 2) = 0 then
       begin
@@ -3817,6 +3790,7 @@ begin
   OldPenColor := FLazPen.Color;
   OldPenWidth := FLazPen.Width;
   try
+    PrepareBatch(0, FLazPen.Style, FLazBrush.Style);
     FLazPen.Width := 1;
     for I := 0 to FrameWidth - 1 do
     begin
@@ -3825,7 +3799,6 @@ begin
         1, ColorToVec4(TopColor));
       AddAALine(R.Left + I, R.Top + I, R.Right - 1 - I, R.Top + I,
         1, ColorToVec4(TopColor));
-
       FLazPen.Color := BottomColor;
       AddAALine(R.Right - 1 - I, R.Top + I, R.Right - 1 - I, R.Bottom -
         1 - I, 1, ColorToVec4(BottomColor));
@@ -3858,6 +3831,7 @@ begin
   R := NormalizeRect(ARect);
   if (R.Right <= R.Left) or (R.Bottom <= R.Top) then Exit;
 
+  PrepareBatch(0, FLazPen.Style, FLazBrush.Style);
   BW := Max(1, FLazPen.Width);
   C := ColorToVec4(FLazBrush.Color);
 
@@ -3885,7 +3859,6 @@ begin
     TM.Height := Bmp.Canvas.TextHeight('Mg');
     TM.Ascender := TM.Height;
     TM.Descender := 0;
-
     Result := True;
 
   finally
