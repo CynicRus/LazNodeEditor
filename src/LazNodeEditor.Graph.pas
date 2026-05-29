@@ -64,6 +64,8 @@ type
     FOnGraphChanged: TGraphChangedEvent;
     FUpdateLock: integer;
 
+    FNodeById: specialize TDictionary<string, TCustomNode>;
+
     procedure DoGraphChanged;
     procedure RemoveLinksToInput(APin: TNodePin);
 
@@ -399,6 +401,8 @@ begin
   FDefaultLinkDrawStyle := ldsBezier;
   FLinkRouter := TNodeLinkRouter.Create(Self);
 
+  FNodeById := specialize TDictionary<string, TCustomNode>.Create;
+
   FRegistry.RegisterNodeEx('default', 'Default Node', 'Basic',
     'Generic test node.', 'default,test', TDefaultNode);
 
@@ -425,6 +429,7 @@ begin
   FLinkRouter.Free;
   FLinks.Free;
   FNodes.Free;
+  FNodeById.Free;
   inherited Destroy;
 end;
 
@@ -454,6 +459,8 @@ begin
     ANode.ZOrder := NextZOrder;
 
   FNodes.Add(ANode);
+  if Assigned(FNodeById) then
+    FNodeById.AddOrSetValue(ANode.Id, ANode);
 
   if Assigned(FOnNodeAdded) then
     FOnNodeAdded(Self, ANode);
@@ -473,6 +480,9 @@ begin
 
   if not FNodes.Contains(ANode) then
     Exit;
+
+  if Assigned(FNodeById) then
+    FNodeById.Remove(ANode.Id);
 
   for i := FLinks.Count - 1 downto 0 do
   begin
@@ -504,6 +514,9 @@ var
 begin
   if ANode = nil then
     Exit;
+
+  if Assigned(FNodeById) then
+    FNodeById.Remove(ANode.Id);
 
   for i := FLinks.Count - 1 downto 0 do
   begin
@@ -877,21 +890,11 @@ begin
 end;
 
 function TNodeGraph.FindNodeById(const AId: string): TCustomNode;
-var
-  i: Integer;
-  N: TCustomNode;
 begin
   Result := nil;
-
-  if AId = '' then
+  if (AId = '') or (FNodeById = nil) then
     Exit;
-
-  for i := 0 to FNodes.Count - 1 do
-  begin
-    N := FNodes[i];
-    if (N <> nil) and SameText(N.Id, AId) then
-      Exit(N);
-  end;
+  FNodeById.TryGetValue(AId, Result);
 end;
 
 function TNodeGraph.FindPinById(const AId: string): TNodePin;
@@ -1080,6 +1083,7 @@ procedure TNodeGraph.Clear;
 begin
   FLinks.Clear;
   FNodes.Clear; // TDAG.Clear
+  if Assigned(FNodeById) then FNodeById.Clear;
   DoGraphChanged;
 end;
 
@@ -1287,6 +1291,8 @@ begin
           NodeObj.Get('y', 0.0));
         N.LoadFromJSON(NodeObj);
         FNodes.Add(N);
+        if Assigned(FNodeById) then
+          FNodeById.AddOrSetValue(N.Id, N);
       end;
     end;
 
