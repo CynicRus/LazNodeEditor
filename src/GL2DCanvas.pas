@@ -75,6 +75,40 @@ type
     Kind: single;
   end;
 
+  TIndexType = GLuint;
+
+  TGLSavedState = record
+    CurrentProgram: GLint;
+    VertexArrayBinding: GLint;
+    ArrayBufferBinding: GLint;
+    ElementArrayBufferBinding: GLint;
+    ActiveTexture: GLint;
+    TextureBinding2D: GLint;
+    SamplerBinding: GLint;
+
+    BlendEnabled: boolean;
+    BlendSrcRGB: GLint;
+    BlendDstRGB: GLint;
+    BlendSrcAlpha: GLint;
+    BlendDstAlpha: GLint;
+    BlendEqRGB: GLint;
+    BlendEqAlpha: GLint;
+
+    CullFaceEnabled: boolean;
+    DepthTestEnabled: boolean;
+    ScissorTestEnabled: boolean;
+    StencilTestEnabled: boolean;
+    MultisampleEnabled: boolean;
+
+    ScissorBox: array[0..3] of GLint;
+    Viewport: array[0..3] of GLint;
+
+    PolygonMode: array[0..1] of GLint;
+
+    PixelUnpackAlignment: GLint;
+    PixelPackAlignment: GLint;
+  end;
+
   TTextCacheKey = record
     Text: string;
     FontName: string;
@@ -153,9 +187,14 @@ type
     FProgram: GLuint;
     FVAO: GLuint;
     FVBO: GLuint;
+    FEBO: GLuint;
 
     FVertices: array of TAAColorVertex;
     FVertexCount: integer;
+
+    FIndices: array of TIndexType;
+    FIndexCount: integer;
+    FEBOCapacity: integer;
 
     FUniformProjection: GLint;
     FUniformTex: GLint;
@@ -201,13 +240,19 @@ type
     FAtlasData: TBytes;
 
     FBatches: array of record
-      StartIndex: integer;
+      StartIndex: integer; // индекс в FIndices
       TexID: GLuint;
       PenStyle: TPenStyle;
       BrushStyle: TBrushStyle;
       PenParams: TVec4;
       end;
     FCurrentBatchIndex: integer;
+
+    FSavedState: TGLSavedState;
+    FStateSaved: boolean;
+    FFrameStartTime: QWord;
+    FLastFrameTimeMs: double;
+
 
     procedure PenChanged(Sender: TObject);
     procedure BrushChanged(Sender: TObject);
@@ -225,6 +270,7 @@ type
     procedure SetProjection;
     procedure ApplyScissor;
     procedure EnsureVertexCapacity(AExtra: integer);
+    procedure EnsureIndexCapacity(AExtra: integer);
     procedure Flush;
 
     procedure PrepareBatch(ATexID: GLuint; APenStyle: TPenStyle;
@@ -234,6 +280,8 @@ type
     function AdjustColor(const AColor: TColor; AFactor: integer): TColor;
     function NormalizeRect(const R: TRect): TRect;
 
+    procedure AddIndex(AIndex: TIndexType);
+    procedure AddQuadIndices(ABaseVertex: TIndexType);
     procedure AddVertex(const APos, ALocal: TVec2; const AData0, AColor: TVec4;
       AKind: TPrimitiveKind);
 
@@ -276,13 +324,15 @@ type
     function CreateTextTexture_Windows(const Text: ansistring;
       out W, H: integer): GLuint;
     {$ELSE}
-
-function CreateTextTexture_Linux(const Text: ansistring; out W, H: Integer): GLuint;
+    function CreateTextTexture_Linux(const Text: ansistring; out W, H: Integer): GLuint;
     {$ENDIF}
     function CreateTextureFromRGBA(const Buf: Pointer; W, H: integer): GLuint;
     procedure InitAtlas;
     procedure ResetAtlas;
     function GetGlyphInfo(AChar: UCS4Char): TGlyphInfo;
+
+    procedure SaveGLState;
+    procedure RestoreGLState;
 
   protected
     function DoCreateDefaultFont: TFPCustomFont; override;
@@ -515,6 +565,11 @@ const
     '  else {'#10 + '    alpha = 1.0;'#10 + '  }'#10 +
     '  if (alpha <= 0.001) discard;'#10 +
     '  FragColor = vec4(vColor.rgb, vColor.a * alpha);'#10 + '}'#10;
+
+function GetTickMs: QWord; inline;
+begin
+  Result := GetTickCount64;
+end;
 
 function MakeVec2(const X, Y: single): TVec2; inline;
 begin
@@ -841,7 +896,9 @@ begin
   FLazFont.OnChange := @FontChanged;
 
   SetLength(FVertices, 32768);
+  SetLength(FIndices, 65536);
   FVertexCount := 0;
+  FIndexCount := 0;
 
   FCurrentX := 0;
   FCurrentY := 0;
@@ -849,6 +906,7 @@ begin
   FProgram := 0;
   FVAO := 0;
   FVBO := 0;
+  FEBO := 0;
   FUniformProjection := -1;
   FUniformTex := -1;
   FUniformPenStyle := -1;
@@ -867,6 +925,8 @@ begin
 
   FCurrentTexture := 0;
   FVBOCapacity := 0;
+  FEBOCapacity := 0;
+  FStateSaved := False;
 
   FLastPenColor := clBlack;
   FLastPenWidth := 1;
@@ -920,8 +980,8 @@ begin
     end;
   end;
 
-  if FAtlasTex <> 0 then
-    glDeleteTextures(1, @FAtlasTex);
+  // FAtlasTex is now destroyed in DestroyGLResources
+
   FreeAndNil(FGlyphCache);
 
   ClearTextureCache;
@@ -1226,10 +1286,15 @@ var
 begin
   glGenVertexArrays(1, @FVAO);
   glGenBuffers(1, @FVBO);
+  glGenBuffers(1, @FEBO);
 
   glBindVertexArray(FVAO);
+
   glBindBuffer(GL_ARRAY_BUFFER, FVBO);
-  glBufferData(GL_ARRAY_BUFFER, 0, nil, GL_DYNAMIC_DRAW);
+  glBufferData(GL_ARRAY_BUFFER, 0, nil, GL_STREAM_DRAW);
+
+  glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, FEBO);
+  glBufferData(GL_ELEMENT_ARRAY_BUFFER, 0, nil, GL_STREAM_DRAW);
 
   Stride := SizeOf(TAAColorVertex);
 
@@ -1257,10 +1322,6 @@ begin
 end;
 
 procedure TGL2DCanvas.DestroyGLResources;
-var
-  TexID: GLuint;
-  Info: TImgTexInfo;
-  Pair: specialize TPair<string, TTextCacheEntry>;
 begin
   if FVAO <> 0 then
   begin
@@ -1272,10 +1333,21 @@ begin
     glDeleteBuffers(1, @FVBO);
     FVBO := 0;
   end;
+  if FEBO <> 0 then
+  begin
+    glDeleteBuffers(1, @FEBO);
+    FEBO := 0;
+  end;
   if FProgram <> 0 then
   begin
     glDeleteProgram(FProgram);
     FProgram := 0;
+  end;
+
+  if FAtlasTex <> 0 then
+  begin
+    glDeleteTextures(1, @FAtlasTex);
+    FAtlasTex := 0;
   end;
 
   ClearTextureCache;
@@ -1394,6 +1466,155 @@ begin
   SetLength(FVertices, NewCap);
 end;
 
+procedure TGL2DCanvas.EnsureIndexCapacity(AExtra: integer);
+var
+  Required, NewCap: integer;
+begin
+  Required := FIndexCount + AExtra;
+  if Required <= Length(FIndices) then
+    Exit;
+
+  NewCap := Length(FIndices);
+  if NewCap = 0 then
+    NewCap := 65536;
+
+  while NewCap < Required do
+    NewCap := NewCap * 2;
+
+  SetLength(FIndices, NewCap);
+end;
+
+procedure TGL2DCanvas.AddIndex(AIndex: TIndexType);
+begin
+  EnsureIndexCapacity(1);
+  FIndices[FIndexCount] := AIndex;
+  Inc(FIndexCount);
+end;
+
+procedure TGL2DCanvas.AddQuadIndices(ABaseVertex: TIndexType);
+begin
+  EnsureIndexCapacity(6);
+
+  FIndices[FIndexCount + 0] := ABaseVertex + 0;
+  FIndices[FIndexCount + 1] := ABaseVertex + 1;
+  FIndices[FIndexCount + 2] := ABaseVertex + 2;
+  FIndices[FIndexCount + 3] := ABaseVertex + 0;
+  FIndices[FIndexCount + 4] := ABaseVertex + 2;
+  FIndices[FIndexCount + 5] := ABaseVertex + 3;
+
+  Inc(FIndexCount, 6);
+end;
+
+procedure TGL2DCanvas.SaveGLState;
+begin
+  if FStateSaved then
+    Exit;
+
+  glGetIntegerv(GL_CURRENT_PROGRAM, @FSavedState.CurrentProgram);
+  glGetIntegerv(GL_VERTEX_ARRAY_BINDING, @FSavedState.VertexArrayBinding);
+  glGetIntegerv(GL_ARRAY_BUFFER_BINDING, @FSavedState.ArrayBufferBinding);
+  glGetIntegerv(GL_ELEMENT_ARRAY_BUFFER_BINDING, @FSavedState.ElementArrayBufferBinding);
+  glGetIntegerv(GL_ACTIVE_TEXTURE, @FSavedState.ActiveTexture);
+
+  glActiveTexture(GL_TEXTURE0);
+  glGetIntegerv(GL_TEXTURE_BINDING_2D, @FSavedState.TextureBinding2D);
+
+  {$IFDEF GL_VERSION_3_3}
+  glGetIntegerv(GL_SAMPLER_BINDING, @FSavedState.SamplerBinding);
+  {$ELSE}
+  FSavedState.SamplerBinding := 0;
+  {$ENDIF}
+
+  FSavedState.BlendEnabled := glIsEnabled(GL_BLEND) = GL_TRUE;
+  glGetIntegerv(GL_BLEND_SRC_RGB, @FSavedState.BlendSrcRGB);
+  glGetIntegerv(GL_BLEND_DST_RGB, @FSavedState.BlendDstRGB);
+  glGetIntegerv(GL_BLEND_SRC_ALPHA, @FSavedState.BlendSrcAlpha);
+  glGetIntegerv(GL_BLEND_DST_ALPHA, @FSavedState.BlendDstAlpha);
+  glGetIntegerv(GL_BLEND_EQUATION_RGB, @FSavedState.BlendEqRGB);
+  glGetIntegerv(GL_BLEND_EQUATION_ALPHA, @FSavedState.BlendEqAlpha);
+
+  FSavedState.CullFaceEnabled := glIsEnabled(GL_CULL_FACE) = GL_TRUE;
+  FSavedState.DepthTestEnabled := glIsEnabled(GL_DEPTH_TEST) = GL_TRUE;
+  FSavedState.ScissorTestEnabled := glIsEnabled(GL_SCISSOR_TEST) = GL_TRUE;
+  FSavedState.StencilTestEnabled := glIsEnabled(GL_STENCIL_TEST) = GL_TRUE;
+  FSavedState.MultisampleEnabled := glIsEnabled(GL_MULTISAMPLE) = GL_TRUE;
+
+  glGetIntegerv(GL_SCISSOR_BOX, @FSavedState.ScissorBox[0]);
+  glGetIntegerv(GL_VIEWPORT, @FSavedState.Viewport[0]);
+  glGetIntegerv(GL_POLYGON_MODE, @FSavedState.PolygonMode[0]);
+
+  glGetIntegerv(GL_UNPACK_ALIGNMENT, @FSavedState.PixelUnpackAlignment);
+  glGetIntegerv(GL_PACK_ALIGNMENT, @FSavedState.PixelPackAlignment);
+
+  FStateSaved := True;
+end;
+
+procedure TGL2DCanvas.RestoreGLState;
+begin
+  if not FStateSaved then
+    Exit;
+
+  if FSavedState.BlendEnabled then glEnable(GL_BLEND)
+  else
+    glDisable(GL_BLEND);
+  glBlendEquationSeparate(FSavedState.BlendEqRGB, FSavedState.BlendEqAlpha);
+  glBlendFuncSeparate(
+    FSavedState.BlendSrcRGB, FSavedState.BlendDstRGB,
+    FSavedState.BlendSrcAlpha, FSavedState.BlendDstAlpha
+    );
+
+  if FSavedState.CullFaceEnabled then glEnable(GL_CULL_FACE)
+  else
+    glDisable(GL_CULL_FACE);
+  if FSavedState.DepthTestEnabled then glEnable(GL_DEPTH_TEST)
+  else
+    glDisable(GL_DEPTH_TEST);
+  if FSavedState.ScissorTestEnabled then glEnable(GL_SCISSOR_TEST)
+  else
+    glDisable(GL_SCISSOR_TEST);
+  if FSavedState.StencilTestEnabled then glEnable(GL_STENCIL_TEST)
+  else
+    glDisable(GL_STENCIL_TEST);
+  if FSavedState.MultisampleEnabled then glEnable(GL_MULTISAMPLE)
+  else
+    glDisable(GL_MULTISAMPLE);
+
+  glScissor(
+    FSavedState.ScissorBox[0],
+    FSavedState.ScissorBox[1],
+    FSavedState.ScissorBox[2],
+    FSavedState.ScissorBox[3]
+    );
+
+  glViewport(
+    FSavedState.Viewport[0],
+    FSavedState.Viewport[1],
+    FSavedState.Viewport[2],
+    FSavedState.Viewport[3]
+    );
+
+  glPolygonMode(GL_FRONT, FSavedState.PolygonMode[0]);
+  glPolygonMode(GL_BACK, FSavedState.PolygonMode[1]);
+
+  glPixelStorei(GL_UNPACK_ALIGNMENT, FSavedState.PixelUnpackAlignment);
+  glPixelStorei(GL_PACK_ALIGNMENT, FSavedState.PixelPackAlignment);
+
+  glUseProgram(FSavedState.CurrentProgram);
+
+  glActiveTexture(FSavedState.ActiveTexture);
+  glBindTexture(GL_TEXTURE_2D, FSavedState.TextureBinding2D);
+
+  {$IFDEF GL_VERSION_3_3}
+  glBindSampler(0, FSavedState.SamplerBinding);
+  {$ENDIF}
+
+  glBindVertexArray(FSavedState.VertexArrayBinding);
+  glBindBuffer(GL_ARRAY_BUFFER, FSavedState.ArrayBufferBinding);
+  glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, FSavedState.ElementArrayBufferBinding);
+
+  FStateSaved := False;
+end;
+
 procedure TGL2DCanvas.PrepareBatch(ATexID: GLuint; APenStyle: TPenStyle;
   ABrushStyle: TBrushStyle);
 var
@@ -1420,7 +1641,7 @@ begin
     FCurrentBatchIndex := High(FBatches);
     with FBatches[FCurrentBatchIndex] do
     begin
-      StartIndex := FVertexCount;
+      StartIndex := FIndexCount;
       TexID := ATexID;
       PenStyle := APenStyle;
       BrushStyle := ABrushStyle;
@@ -1430,37 +1651,57 @@ end;
 
 procedure TGL2DCanvas.Flush;
 var
-  DataSize: integer;
+  VertexDataSize: integer;
+  IndexDataSize: integer;
   i: integer;
-  StartV, CountV: integer;
+  StartI, CountI: integer;
   DashParams: TVec4;
   PenStyleInt, BrushStyleInt: integer;
 begin
-  if FVertexCount <= 0 then Exit;
+  if (FVertexCount <= 0) or (FIndexCount <= 0) then
+    Exit;
 
-  DataSize := SizeOf(TAAColorVertex) * FVertexCount;
+  VertexDataSize := SizeOf(TAAColorVertex) * FVertexCount;
+  IndexDataSize := SizeOf(TIndexType) * FIndexCount;
 
   glUseProgram(FProgram);
   SetProjection;
 
   glBindVertexArray(FVAO);
+
   glBindBuffer(GL_ARRAY_BUFFER, FVBO);
-
-  if DataSize > FVBOCapacity then
+  if VertexDataSize > FVBOCapacity then
   begin
-    FVBOCapacity := DataSize * 2;
-    glBufferData(GL_ARRAY_BUFFER, FVBOCapacity, nil, GL_DYNAMIC_DRAW);
+    FVBOCapacity := VertexDataSize * 2;
+    glBufferData(GL_ARRAY_BUFFER, FVBOCapacity, nil, GL_STREAM_DRAW);
+  end
+  else
+  begin
+    glBufferData(GL_ARRAY_BUFFER, FVBOCapacity, nil, GL_STREAM_DRAW);
   end;
+  glBufferSubData(GL_ARRAY_BUFFER, 0, VertexDataSize, @FVertices[0]);
 
-  glBufferSubData(GL_ARRAY_BUFFER, 0, DataSize, @FVertices[0]);
+  glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, FEBO);
+  if IndexDataSize > FEBOCapacity then
+  begin
+    FEBOCapacity := IndexDataSize * 2;
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, FEBOCapacity, nil, GL_STREAM_DRAW);
+  end
+  else
+  begin
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, FEBOCapacity, nil, GL_STREAM_DRAW);
+  end;
+  glBufferSubData(GL_ELEMENT_ARRAY_BUFFER, 0, IndexDataSize, @FIndices[0]);
 
   for i := 0 to High(FBatches) do
   begin
     if i < High(FBatches) then
-      CountV := FBatches[i + 1].StartIndex - FBatches[i].StartIndex
+      CountI := FBatches[i + 1].StartIndex - FBatches[i].StartIndex
     else
-      CountV := FVertexCount - FBatches[i].StartIndex;
-    if CountV <= 0 then Continue;
+      CountI := FIndexCount - FBatches[i].StartIndex;
+
+    if CountI <= 0 then
+      Continue;
 
     if FCurrentTexture <> FBatches[i].TexID then
     begin
@@ -1470,49 +1711,57 @@ begin
       FCurrentTexture := FBatches[i].TexID;
     end;
 
-    begin
-      PenStyleInt := 0;
-      DashParams := MakeVec4(0, 0, 0, 0);
-      case FBatches[i].PenStyle of
-        psSolid: PenStyleInt := 0;
-        psDash: begin
-          PenStyleInt := 1;
-          DashParams := MakeVec4(10.0, 5.0, 0.0, 0.0);
-        end;
-        psDot: begin
-          PenStyleInt := 1;
-          DashParams := MakeVec4(2.0, 2.0, 0.0, 0.0);
-        end;
-        psDashDot, psDashDotDot: begin
-          PenStyleInt := 1;
-          DashParams := MakeVec4(10.0, 3.0, 2.0, 3.0);
-        end;
+    PenStyleInt := 0;
+    DashParams := MakeVec4(0, 0, 0, 0);
+    case FBatches[i].PenStyle of
+      psSolid: PenStyleInt := 0;
+      psDash:
+      begin
+        PenStyleInt := 1;
+        DashParams := MakeVec4(10.0, 5.0, 0.0, 0.0);
       end;
-      glUniform1i(FUniformPenStyle, PenStyleInt);
-      glUniform4f(FUniformDashParams, DashParams.X, DashParams.Y,
-        DashParams.Z, DashParams.W);
-
-      BrushStyleInt := 0;
-      case FBatches[i].BrushStyle of
-        bsSolid: BrushStyleInt := 0;
-        bsHorizontal: BrushStyleInt := 1;
-        bsVertical: BrushStyleInt := 2;
-        bsFDiagonal: BrushStyleInt := 3;
-        bsBDiagonal: BrushStyleInt := 4;
-        bsCross: BrushStyleInt := 5;
-        bsDiagCross: BrushStyleInt := 6;
+      psDot:
+      begin
+        PenStyleInt := 1;
+        DashParams := MakeVec4(2.0, 2.0, 0.0, 0.0);
       end;
-      glUniform1i(FUniformBrushStyle, BrushStyleInt);
+      psDashDot, psDashDotDot:
+      begin
+        PenStyleInt := 1;
+        DashParams := MakeVec4(10.0, 3.0, 2.0, 3.0);
+      end;
     end;
+    glUniform1i(FUniformPenStyle, PenStyleInt);
+    glUniform4f(FUniformDashParams, DashParams.X, DashParams.Y,
+      DashParams.Z, DashParams.W);
 
-    glDrawArrays(GL_TRIANGLES, FBatches[i].StartIndex, CountV);
+    BrushStyleInt := 0;
+    case FBatches[i].BrushStyle of
+      bsSolid: BrushStyleInt := 0;
+      bsHorizontal: BrushStyleInt := 1;
+      bsVertical: BrushStyleInt := 2;
+      bsFDiagonal: BrushStyleInt := 3;
+      bsBDiagonal: BrushStyleInt := 4;
+      bsCross: BrushStyleInt := 5;
+      bsDiagCross: BrushStyleInt := 6;
+    end;
+    glUniform1i(FUniformBrushStyle, BrushStyleInt);
 
+    StartI := FBatches[i].StartIndex;
+    glDrawElements(
+      GL_TRIANGLES,
+      CountI,
+      GL_UNSIGNED_INT,
+      Pointer(PtrUInt(StartI * SizeOf(TIndexType)))
+      );
   end;
 
-  glBindBuffer(GL_ARRAY_BUFFER, 0);
   glBindVertexArray(0);
+  glBindBuffer(GL_ARRAY_BUFFER, 0);
+  glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
 
   FVertexCount := 0;
+  FIndexCount := 0;
   SetLength(FBatches, 0);
   FCurrentBatchIndex := -1;
 end;
@@ -1531,18 +1780,41 @@ begin
 end;
 
 procedure TGL2DCanvas.AddTriangle(const A, B, C: TAAColorVertex);
+var
+  Base: TIndexType;
 begin
   EnsureVertexCapacity(3);
-  FVertices[FVertexCount] := A;
+  EnsureIndexCapacity(3);
+
+  Base := FVertexCount;
+
+  FVertices[FVertexCount + 0] := A;
   FVertices[FVertexCount + 1] := B;
   FVertices[FVertexCount + 2] := C;
   Inc(FVertexCount, 3);
+
+  FIndices[FIndexCount + 0] := Base + 0;
+  FIndices[FIndexCount + 1] := Base + 1;
+  FIndices[FIndexCount + 2] := Base + 2;
+  Inc(FIndexCount, 3);
 end;
 
 procedure TGL2DCanvas.AddQuad(const A, B, C, D: TAAColorVertex);
+var
+  Base: TIndexType;
 begin
-  AddTriangle(A, B, C);
-  AddTriangle(A, C, D);
+  EnsureVertexCapacity(4);
+  EnsureIndexCapacity(6);
+
+  Base := FVertexCount;
+
+  FVertices[FVertexCount + 0] := A;
+  FVertices[FVertexCount + 1] := B;
+  FVertices[FVertexCount + 2] := C;
+  FVertices[FVertexCount + 3] := D;
+  Inc(FVertexCount, 4);
+
+  AddQuadIndices(Base);
 end;
 
 procedure TGL2DCanvas.AddSolidRect(const X1, Y1, X2, Y2: single; const AColor: TVec4);
@@ -2393,22 +2665,32 @@ begin
 
   FControl.MakeCurrent;
   EnsureGLReady;
+  FFrameStartTime := GetTickMs;
+  SaveGLState;
 
   FWidth := FControl.Width;
   FHeight := FControl.Height;
 
   glViewport(0, 0, FWidth, FHeight);
 
-  glClearColor(0.95, 0.95, 0.95, 1.0);
-  glClear(GL_COLOR_BUFFER_BIT);
+  glDisable(GL_CULL_FACE);
+  glDisable(GL_DEPTH_TEST);
+  glDisable(GL_STENCIL_TEST);
 
   glEnable(GL_BLEND);
-  glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+  glBlendEquationSeparate(GL_FUNC_ADD, GL_FUNC_ADD);
+  glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE,
+    GL_ONE_MINUS_SRC_ALPHA);
+
   glEnable(GL_MULTISAMPLE);
+
+  glClearColor(0.95, 0.95, 0.95, 1.0);
+  glClear(GL_COLOR_BUFFER_BIT);
 
   ApplyScissor;
 
   FVertexCount := 0;
+  FIndexCount := 0;
   FCurrentTexture := 0;
   FDrawing := True;
 
@@ -2416,8 +2698,8 @@ begin
   FCurrentBatchIndex := -1;
 
   glUseProgram(FProgram);
+  glBindVertexArray(FVAO);
 
-  FCurrentTexture := 0;
   glActiveTexture(GL_TEXTURE0);
   glBindTexture(GL_TEXTURE_2D, 0);
 
@@ -2425,14 +2707,53 @@ begin
 end;
 
 procedure TGL2DCanvas.EndDraw;
+var
+  S: string;
+  OldFontColor: TColor;
+  OldBrushStyle: TBrushStyle;
+  OldClip: TRect;
+  OldClipping: boolean;
 begin
   if not FDrawing then
     Exit;
 
+  //glFinish;
+  FLastFrameTimeMs := 0.0;
+  FLastFrameTimeMs := GetTickMs - FFrameStartTime;
+
+  S := Format('%.2f ms', [FLastFrameTimeMs]);
+
+  OldFontColor := FLazFont.Color;
+  OldBrushStyle := FLazBrush.Style;
+  OldClip := FClipRect;
+  OldClipping := FClipping;
+  try
+    FLazFont.Color := clLime;
+    FLazBrush.Style := bsClear;
+    FClipRect := Rect(0, 0, FWidth, FHeight);
+    FClipping := False;
+    ApplyScissor;
+
+    DoTextOut(6, 6, S);
+  finally
+    FLazFont.Color := OldFontColor;
+    FLazBrush.Style := OldBrushStyle;
+    FClipRect := OldClip;
+    FClipping := OldClipping;
+    ApplyScissor;
+  end;
+
   Flush;
+
   glUseProgram(0);
+  glBindVertexArray(0);
+  glBindBuffer(GL_ARRAY_BUFFER, 0);
+  glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+  glBindTexture(GL_TEXTURE_2D, 0);
 
   FDrawing := False;
+
+  RestoreGLState;
 
   if Assigned(FControl) then
     FControl.SwapBuffers;
@@ -2749,8 +3070,8 @@ begin
   EnsureGLReady;
 
   // === CACHED SINGLE-TEXTURE TEXT (fast + correct) ===
-  Key := Format('%s|%s|%d|%d|%d', [Text, FLazFont.Name,
-    FLazFont.Size, integer(FLazFont.Style), FLazFont.Color]);
+  Key := Format('%s|%s|%d|%d|%d', [Text, FLazFont.Name, FLazFont.Size,
+    integer(FLazFont.Style), FLazFont.Color]);
 
   if FTextCache.TryGetValue(Key, Entry) then
   begin
@@ -3346,17 +3667,18 @@ begin
   MaxPts := Length(Points);
   ACount := 0;
 
-  if MaxPts <= 0 then Exit;
+  if MaxPts <= 0 then
+    Exit;
 
   Steps := Max(8, Ceil(Abs(ASweepRad) * 24));
-  if Steps > MaxPts then Steps := MaxPts;
-  if Steps < 2 then Steps := 2;
+  if Steps > MaxPts then
+    Steps := MaxPts;
+  if Steps < 2 then
+    Steps := 2;
 
   for I := 0 to Steps - 1 do
   begin
-    if Steps = 1 then T := 0
-    else
-      T := I / (Steps - 1);
+    T := I / (Steps - 1);
     A := AStartRad + ASweepRad * T;
     Points[ACount] := PointOnEllipse(RR, A);
     Inc(ACount);
@@ -3366,13 +3688,19 @@ end;
 procedure TGL2DCanvas.DrawArcInternal(const R: TRect; AStartRad, ASweepRad: single;
   UpdatePenPos: boolean);
 var
-  Pts: array[0..255] of TPoint;
+  Pts: array of TPoint;
   Count: integer;
 begin
-  if FLazPen.Style = psClear then Exit;
+  if FLazPen.Style = psClear then
+    Exit;
+
+  SetLength(Pts, 256);
   BuildArcPolyline(R, AStartRad, ASweepRad, Pts, Count);
   if Count > 1 then
-    DoPolyline(Slice(Pts, Count));
+  begin
+    SetLength(Pts, Count);
+    DoPolyline(Pts);
+  end;
 
   if UpdatePenPos and (Count > 0) then
   begin
@@ -3394,23 +3722,28 @@ end;
 procedure TGL2DCanvas.DrawChordInternal(const R: TRect; AStartRad, ASweepRad: single);
 var
   Pts: array of TPoint;
-  Count, I: integer;
+  Count: integer;
+  ClosedPts: array of TPoint;
 begin
+  SetLength(Pts, 256);
   BuildArcPolyline(R, AStartRad, ASweepRad, Pts, Count);
-  if Count < 2 then Exit;
+  if Count < 2 then
+    Exit;
+
+  SetLength(Pts, Count);
 
   if FLazBrush.Style <> bsClear then
   begin
-    SetLength(Pts, Count + 1);
-    Pts[Count] := Pts[0];
-    DoPolygonFill(Pts);
-    SetLength(Pts, Count);
+    SetLength(ClosedPts, Count + 1);
+    Move(Pts[0], ClosedPts[0], Count * SizeOf(TPoint));
+    ClosedPts[Count] := Pts[0];
+    DoPolygonFill(ClosedPts);
   end;
 
   if FLazPen.Style <> psClear then
   begin
+    DoPolyline(Pts);
     PrepareBatch(0, FLazPen.Style, FLazBrush.Style);
-    DoPolyline(Slice(Pts, Count));
     AddAALine(
       Pts[Count - 1].X, Pts[Count - 1].Y,
       Pts[0].X, Pts[0].Y,
@@ -3739,9 +4072,17 @@ var
 begin
   Img := GraphicToImage(SrcGraphic);
   try
-    if Img = nil then Exit;
+    if Img = nil then
+      Exit;
+
     R := NormalizeRect(DestRect);
-    StretchDraw(R.Left, R.Top, R.Right - R.Left, R.Bottom - R.Left, Img);
+    StretchDraw(
+      R.Left,
+      R.Top,
+      R.Right - R.Left,
+      R.Bottom - R.Top,
+      Img
+      );
   finally
     Img.Free;
   end;
