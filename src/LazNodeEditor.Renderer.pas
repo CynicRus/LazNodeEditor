@@ -236,6 +236,8 @@ type
 
     function GetResizeHandleRect(ANode: TCustomNode;
       const AContext: TRenderContext): TRect;
+
+    function IsNodeVisible(const ANode: TCustomNode; const VisibleRect: TRectF): boolean; virtual;
   public
     constructor Create(ABackend: TRendererBackend); virtual;
     destructor Destroy; override;
@@ -572,6 +574,11 @@ begin
     N := TCustomNode(AContext.PaintNodesSorted[i]);
     if (N = nil) or (N.VisualKind <> nvComment) then
       Continue;
+
+    // Visibility culling
+    if not IsNodeVisible(N, AContext.VisibleWorldRect) then
+      Continue;
+
     DrawSingleNode(AContext, N);
   end;
 end;
@@ -589,6 +596,11 @@ begin
     N := TCustomNode(AContext.PaintNodesSorted[i]);
     if (N = nil) or (N.VisualKind = nvComment) then
       Continue;
+
+    // Visibility culling
+    if not IsNodeVisible(N, AContext.VisibleWorldRect) then
+      Continue;
+
     DrawSingleNode(AContext, N);
   end;
 end;
@@ -792,6 +804,18 @@ begin
     R := GetResizeHandleRect(N, AContext);
     RectangleEx(AContext, R);
   end;
+end;
+
+function TAbstractNodeEditorRenderer.IsNodeVisible(const ANode: TCustomNode; const VisibleRect: TRectF): boolean;
+var
+  NodeRect: TRectF;
+begin
+  if ANode = nil then
+    Exit(False);
+
+  NodeRect := RectF(ANode.X, ANode.Y, ANode.X + ANode.Width, ANode.Y + ANode.Height);
+  Result := not ((NodeRect.Right < VisibleRect.Left) or (NodeRect.Left > VisibleRect.Right) or
+                 (NodeRect.Bottom < VisibleRect.Top) or (NodeRect.Top > VisibleRect.Bottom));
 end;
 
 procedure TAbstractNodeEditorRenderer.ResetCanvasState(const AContext: TRenderContext);
