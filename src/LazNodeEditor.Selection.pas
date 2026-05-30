@@ -42,10 +42,13 @@ type
     FNodes: TList;
     FSelectedLinks: TNodeLinkList;
     FOnChanged: TNotifyEvent;
+    FUpdateCount: Integer;
     procedure NotifyChanged;
   public
     constructor Create;
     destructor Destroy; override;
+    procedure BeginUpdate;
+    procedure EndUpdate;
 
     procedure Clear;
     procedure SelectNode(ANode: TCustomNode; AAppend: boolean);
@@ -102,6 +105,7 @@ begin
   inherited Create;
   FNodes := TList.Create;
   FSelectedLinks := TNodeLinkList.Create(False);
+  FUpdateCount:=0;
 end;
 
 destructor TNodeSelectionModel.Destroy;
@@ -111,9 +115,22 @@ begin
   inherited Destroy;
 end;
 
+procedure TNodeSelectionModel.BeginUpdate;
+begin
+  Inc(FUpdateCount);
+end;
+
+procedure TNodeSelectionModel.EndUpdate;
+begin
+  if FUpdateCount > 0 then
+    Dec(FUpdateCount);
+  if FUpdateCount = 0 then
+    NotifyChanged;
+end;
+
 procedure TNodeSelectionModel.NotifyChanged;
 begin
-  if Assigned(FOnChanged) then
+  if (FUpdateCount = 0) and Assigned(FOnChanged) then
     FOnChanged(Self);
 end;
 

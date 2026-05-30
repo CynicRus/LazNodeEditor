@@ -29,6 +29,8 @@ uses
   Classes, SysUtils, Graphics, Types, Math, fpjson, jsonparser;
 
 type
+  TNodeLink = class;
+
   TPinKind = (pkData, pkExec);
   TPinDirection = (pdInput, pdOutput);
 
@@ -73,6 +75,7 @@ type
   TGraphLinkEvent = procedure(Sender: TObject; ALink: TObject) of object;
   TGraphChangedEvent = procedure(Sender: TObject) of object;
   TEditorZoomChangedEvent = procedure(Sender: TObject) of object;
+  TIsLinkSelectedFunc = function(ALink: TNodeLink): Boolean of object;
 
   TNodeRenderState = record
     Zoom: double;
@@ -91,6 +94,8 @@ type
     TempFromPin: TObject;
     TempMousePos: TPoint;
     HoveredPinCompatible: boolean;
+
+    IsLinkSelected: TIsLinkSelectedFunc;
   end;
 
   { TNodePinType }

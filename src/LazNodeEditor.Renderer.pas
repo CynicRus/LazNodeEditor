@@ -237,7 +237,8 @@ type
     function GetResizeHandleRect(ANode: TCustomNode;
       const AContext: TRenderContext): TRect;
 
-    function IsNodeVisible(const ANode: TCustomNode; const VisibleRect: TRectF): boolean; virtual;
+    function IsNodeVisible(const ANode: TCustomNode; const VisibleRect: TRectF): boolean;
+      virtual;
   public
     constructor Create(ABackend: TRendererBackend); virtual;
     destructor Destroy; override;
@@ -507,7 +508,8 @@ begin
     if L = nil then
       Continue;
 
-    Selected := AContext.RenderState.SelectedLink = L;
+    Selected := (Assigned(AContext.RenderState.IsLinkSelected) and
+      AContext.RenderState.IsLinkSelected(L)) or (AContext.RenderState.SelectedLink = L);
     Hovered := AContext.RenderState.HoveredLink = L;
 
     if AContext.Graph.LinkRouter <> nil then
@@ -806,7 +808,8 @@ begin
   end;
 end;
 
-function TAbstractNodeEditorRenderer.IsNodeVisible(const ANode: TCustomNode; const VisibleRect: TRectF): boolean;
+function TAbstractNodeEditorRenderer.IsNodeVisible(const ANode: TCustomNode;
+  const VisibleRect: TRectF): boolean;
 var
   NodeRect: TRectF;
 begin
@@ -814,8 +817,9 @@ begin
     Exit(False);
 
   NodeRect := RectF(ANode.X, ANode.Y, ANode.X + ANode.Width, ANode.Y + ANode.Height);
-  Result := not ((NodeRect.Right < VisibleRect.Left) or (NodeRect.Left > VisibleRect.Right) or
-                 (NodeRect.Bottom < VisibleRect.Top) or (NodeRect.Top > VisibleRect.Bottom));
+  Result := not ((NodeRect.Right < VisibleRect.Left) or
+    (NodeRect.Left > VisibleRect.Right) or (NodeRect.Bottom <
+    VisibleRect.Top) or (NodeRect.Top > VisibleRect.Bottom));
 end;
 
 procedure TAbstractNodeEditorRenderer.ResetCanvasState(const AContext: TRenderContext);

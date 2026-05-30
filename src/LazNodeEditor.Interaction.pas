@@ -875,38 +875,43 @@ begin
   if not (ssCtrl in Shift) and not (ssShift in Shift) then
     Editor.ClearSelectionInternal;
 
-  if ssShift in Shift then
-  begin
-    for i := 0 to Graph.Nodes.Count - 1 do
+  Controller.Selection.BeginUpdate;
+  try
+    if ssShift in Shift then
     begin
-      N := TCustomNode(Graph.Nodes[i]);
-      if RectFIntersects(R, RectF(N.X, N.Y, N.X + N.Width, N.Y + N.Height)) then
-        Editor.AddNodeToSelection(N);
-    end;
-  end
-  else if ssCtrl in Shift then
-  begin
-    for i := 0 to Graph.Links.Count - 1 do
+      for i := 0 to Graph.Nodes.Count - 1 do
+      begin
+        N := TCustomNode(Graph.Nodes[i]);
+        if RectFIntersects(R, RectF(N.X, N.Y, N.X + N.Width, N.Y + N.Height)) then
+          Controller.Selection.AddNodeToSelection(N);
+      end;
+    end
+    else if ssCtrl in Shift then
     begin
-      L := TNodeLink(Graph.Links[i]);
-      if Editor.IsLinkInsideWorldRect(L, R) then
-        Editor.AddLinkToSelection(L);
-    end;
-  end
-  else
-  begin
-    for i := 0 to Graph.Nodes.Count - 1 do
+      for i := 0 to Graph.Links.Count - 1 do
+      begin
+        L := TNodeLink(Graph.Links[i]);
+        if Editor.IsLinkInsideWorldRect(L, R) then
+          Controller.Selection.AddLinkToSelection(L);
+      end;
+    end
+    else
     begin
-      N := TCustomNode(Graph.Nodes[i]);
-      if RectFIntersects(R, RectF(N.X, N.Y, N.X + N.Width, N.Y + N.Height)) then
-        Editor.AddNodeToSelection(N);
+      for i := 0 to Graph.Nodes.Count - 1 do
+      begin
+        N := TCustomNode(Graph.Nodes[i]);
+        if RectFIntersects(R, RectF(N.X, N.Y, N.X + N.Width, N.Y + N.Height)) then
+          Controller.Selection.AddNodeToSelection(N);
+      end;
+      for i := 0 to Graph.Links.Count - 1 do
+      begin
+        L := TNodeLink(Graph.Links[i]);
+        if Editor.IsLinkInsideWorldRect(L, R) then
+          Controller.Selection.AddLinkToSelection(L);
+      end;
     end;
-    for i := 0 to Graph.Links.Count - 1 do
-    begin
-      L := TNodeLink(Graph.Links[i]);
-      if Editor.IsLinkInsideWorldRect(L, R) then
-        Editor.AddLinkToSelection(L);
-    end;
+  finally
+    Controller.Selection.EndUpdate;
   end;
 
   Editor.NotifySelectionChanged;

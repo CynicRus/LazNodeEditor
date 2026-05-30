@@ -119,7 +119,7 @@ type
     procedure BuildRenderContext;
     procedure GLControlPaint(Sender: TObject);
     procedure NodeGraphChanged(Sender: TObject);
-    procedure ControllerSelectionChanged(Sender: TObject);
+    procedure ControllerSelectionChanged(Sender: TObject);deprecated;
     procedure DoPinSelectionChanged(Sender: TObject);
 
     procedure InvalidateSortedNodes;
@@ -219,7 +219,7 @@ type
 
     procedure ShowNodeSearchPopup(AScreenX, AScreenY: integer;
       AWorldX, AWorldY: single);
-    procedure SyncControllerSelectionToView;
+    procedure SyncControllerSelectionToView; deprecated;
     procedure SyncNodeSelectedFlags;
 
     function GetPrimarySelectedNode: TCustomNode;
@@ -250,6 +250,7 @@ type
     function SelectedNodeCount: integer;
     function SelectedLinkCount: integer;
     function GetSelectedNode(Index: integer): TCustomNode;
+    function IsLinkSelected(ALink: TNodeLink): Boolean;
 
     procedure FitToSelection;
     procedure FrameAll;
@@ -316,8 +317,8 @@ type
       read FOnBeforeConnectPins write FOnBeforeConnectPins;
     property OnAfterConnectPins: TEditorPinsConnectedEvent
       read FOnAfterConnectPins write FOnAfterConnectPins;
-    property LinkDrawStyle: TLinkDrawStyle
-      read GetLinkDrawStyle write SetLinkDrawStyle default ldsBezier;
+    property LinkDrawStyle: TLinkDrawStyle read GetLinkDrawStyle
+      write SetLinkDrawStyle default ldsBezier;
   end;
 
 function NodeVisualLayer(ANode: TCustomNode): integer; inline;
@@ -1411,10 +1412,12 @@ begin
   FRenderContext.RenderState.HoveredPin := FHoveredPin;
   FRenderContext.RenderState.HoveredLink := FHoveredLink;
   FRenderContext.RenderState.SelectedLink := GetPrimarySelectedLink;
+  FRenderContext.RenderState.IsLinkSelected := @IsLinkSelected;
   FRenderContext.RenderState.PinSelection := FController.PinSelection;
   FRenderContext.RenderState.TempFromPin := FInteraction.TempFromPin;
   FRenderContext.RenderState.TempMousePos := FInteraction.TempMousePos;
   FRenderContext.RenderState.HoveredPinCompatible := FHoveredPinCompatible;
+
 
   FRenderContext.BoxSelecting := FInteraction.IsBoxSelecting;
   if FInteraction.IsBoxSelecting then
@@ -1556,10 +1559,15 @@ begin
   if (Key = Ord('A')) and (ssCtrl in Shift) then
   begin
     ClearSelectionInternal;
-    for i := 0 to FGraph.Nodes.Count - 1 do
-      AddNodeToSelection(TCustomNode(FGraph.Nodes[i]));
-    for i := 0 to FGraph.Links.Count - 1 do
-      AddLinkToSelection(TNodeLink(FGraph.Links[i]));
+    FController.Selection.BeginUpdate;
+    try
+      for i := 0 to FGraph.Nodes.Count - 1 do
+        FController.Selection.AddNodeToSelection(TCustomNode(FGraph.Nodes[i]));
+      for i := 0 to FGraph.Links.Count - 1 do
+        FController.Selection.AddLinkToSelection(TNodeLink(FGraph.Links[i]));
+    finally
+      FController.Selection.EndUpdate;
+    end;
     NotifySelectionChanged;
     Invalidate;
     Key := 0;
@@ -1569,8 +1577,13 @@ begin
   if (Key = Ord('A')) and (ssShift in Shift) then
   begin
     ClearSelectionInternal;
-    for i := 0 to FGraph.Links.Count - 1 do
-      AddLinkToSelection(TNodeLink(FGraph.Links[i]));
+    FController.Selection.BeginUpdate;
+    try
+      for i := 0 to FGraph.Links.Count - 1 do
+        FController.Selection.AddLinkToSelection(TNodeLink(FGraph.Links[i]));
+    finally
+      FController.Selection.EndUpdate;
+    end;
     NotifySelectionChanged;
     Invalidate;
     Key := 0;
@@ -1720,6 +1733,13 @@ end;
 function TLazNodeEditor.GetSelectedNode(Index: integer): TCustomNode;
 begin
   Result := FController.Selection.GetNode(Index);
+end;
+
+function TLazNodeEditor.IsLinkSelected(ALink: TNodeLink): Boolean;
+begin
+  Result := (FController <> nil) and
+            (FController.Selection <> nil) and
+            FController.Selection.ContainsLink(ALink);
 end;
 
 procedure TLazNodeEditor.FitToSelection;
