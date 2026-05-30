@@ -253,6 +253,11 @@ type
     FFrameStartTime: QWord;
     FLastFrameTimeMs: double;
 
+    FGlyphBitmapCanvas: TBitmap;
+    FAtlasNeedFlush: boolean;
+    FAtlasDirtyX0, FAtlasDirtyY0: integer;
+    FAtlasDirtyX1, FAtlasDirtyY1: integer;
+
 
     procedure PenChanged(Sender: TObject);
     procedure BrushChanged(Sender: TObject);
@@ -266,6 +271,7 @@ type
     procedure EvictLRUImageTextures(RequiredSpace: int64);
     function MakeTextCacheKey(const AText: string): string;
     function MakeGlyphKey(AChar: UCS4Char): TGlyphKey;
+    procedure InitGlyphBitmapCanvas;
 
     procedure SetProjection;
     procedure ApplyScissor;
@@ -330,6 +336,7 @@ type
     procedure InitAtlas;
     procedure ResetAtlas;
     function GetGlyphInfo(AChar: UCS4Char): TGlyphInfo;
+    procedure FlushAtlasDirtyRegion;
 
     procedure SaveGLState;
     procedure RestoreGLState;
@@ -988,6 +995,7 @@ begin
   FreeAndNil(FImgCacheInfo);
   FreeAndNil(FImgCache);
   FreeAndNil(FTextCache);
+  FreeAndNil(FGlyphBitmapCanvas);
 
   FLazFont := nil;
   FLazBrush := nil;
@@ -1079,7 +1087,6 @@ begin
   if not Assigned(FControl) then
     Exit;
 
-  FControl.MakeCurrent;
   EnsureGLReady;
   Flush;
 
@@ -1161,7 +1168,8 @@ begin
   if not Assigned(FControl) then
     raise Exception.Create('TGL2DCanvas requires TOpenGLControl');
 
-  FControl.MakeCurrent;
+  if not FDrawing then
+    FControl.MakeCurrent;
 
   if not InitOpenGL then
     raise Exception.Create('InitOpenGL failed');
@@ -1231,7 +1239,7 @@ begin
   FAtlasX := 0;
   FAtlasY := 0;
   FAtlasRowHeight := 0;
-
+  FAtlasNeedFlush := False;
   FGlyphCache.Clear;
 end;
 
@@ -1241,6 +1249,16 @@ begin
   Result.FontName := FLazFont.Name;
   Result.FontSize := FLazFont.Size;
   Result.FontStyle := FLazFont.Style;
+end;
+
+procedure TGL2DCanvas.InitGlyphBitmapCanvas;
+begin
+  if FGlyphBitmapCanvas = nil then
+  begin
+    FGlyphBitmapCanvas := TBitmap.Create;
+    FGlyphBitmapCanvas.PixelFormat := pf32bit;
+    FGlyphBitmapCanvas.SetSize(256, 64);
+  end;
 end;
 
 procedure TGL2DCanvas.LoadShaders;
@@ -1660,6 +1678,7 @@ var
 begin
   if (FVertexCount <= 0) or (FIndexCount <= 0) then
     Exit;
+  FlushAtlasDirtyRegion;
 
   VertexDataSize := SizeOf(TAAColorVertex) * FVertexCount;
   IndexDataSize := SizeOf(TIndexType) * FIndexCount;
@@ -2501,161 +2520,149 @@ end;
 function TGL2DCanvas.GetGlyphInfo(AChar: UCS4Char): TGlyphInfo;
 var
   Key: TGlyphKey;
-  GlyphBitmap: TBitmap;
-  IntfImg: TLazIntfImage;
-  X, Y: integer;
   CharStr: unicodestring;
-  C: TFPColor;
-  Data: pbyte;
-  P: pbyte;
-  Alpha: byte;
-  RowDst: pbyte;
   InkW, InkH: integer;
   GlyphW, GlyphH: integer;
   PlaceX, PlaceY: integer;
   NeedReset: boolean;
+  SrcRow: pbyte;
+  DstRow: pbyte;
+  X, Y: integer;
+  Lum, Alpha: byte;
+  Pixel: DWORD;
+  ScanPtr: pbyte;
 begin
   Key := MakeGlyphKey(AChar);
-
   if FGlyphCache.TryGetValue(Key, Result) then
     Exit;
 
   FillChar(Result, SizeOf(Result), 0);
 
-  GlyphBitmap := TBitmap.Create;
-  IntfImg := nil;
-  Data := nil;
-  try
-    GlyphBitmap.PixelFormat := pf32bit;
-    GlyphBitmap.Transparent := False;
-    GlyphBitmap.Canvas.Font.Assign(FLazFont);
-    CharStr := unicodestring(unicodechar(AChar));
-    InkW := GlyphBitmap.Canvas.TextWidth(CharStr);
-    InkH := GlyphBitmap.Canvas.TextHeight(CharStr);
+  InitGlyphBitmapCanvas;
+  FGlyphBitmapCanvas.Canvas.Font.Assign(FLazFont);
 
-    if InkW <= 0 then
-      InkW := Max(1, FLazFont.Size div 2);
-    if InkH <= 0 then
-      InkH := Max(1, FLazFont.Size + 4);
+  CharStr := unicodestring(unicodechar(AChar));
 
-    GlyphW := InkW + GLYPH_PAD_X * 2;
-    GlyphH := InkH + GLYPH_PAD_Y * 2;
+  InkW := FGlyphBitmapCanvas.Canvas.TextWidth(CharStr);
+  InkH := FGlyphBitmapCanvas.Canvas.TextHeight(CharStr);
 
-    if (GlyphW > FAtlasWidth) or (GlyphH > FAtlasHeight) then
-      raise Exception.CreateFmt('Glyph too large for atlas: %d x %d', [GlyphW, GlyphH]);
+  if InkW <= 0 then InkW := Max(1, FLazFont.Size div 2);
+  if InkH <= 0 then InkH := Max(1, FLazFont.Size + 4);
 
-    NeedReset := False;
+  GlyphW := InkW + GLYPH_PAD_X * 2;
+  GlyphH := InkH + GLYPH_PAD_Y * 2;
 
-    if FAtlasX + GlyphW > FAtlasWidth then
-    begin
-      FAtlasX := 0;
-      Inc(FAtlasY, FAtlasRowHeight + GLYPH_CELL_SPACING);
-      FAtlasRowHeight := 0;
-    end;
-
-    if FAtlasY + GlyphH > FAtlasHeight then
-      NeedReset := True;
-
-    if NeedReset then
-    begin
-      Flush;
-      ResetAtlas;
-    end;
-
-    if FAtlasX + GlyphW > FAtlasWidth then
-    begin
-      FAtlasX := 0;
-      Inc(FAtlasY, FAtlasRowHeight + GLYPH_CELL_SPACING);
-      FAtlasRowHeight := 0;
-    end;
-
-    if FAtlasY + GlyphH > FAtlasHeight then
-      raise Exception.Create('Glyph atlas overflow after reset');
-
-    PlaceX := FAtlasX;
-    PlaceY := FAtlasY;
-
-    GlyphBitmap.SetSize(GlyphW, GlyphH);
-
-    GlyphBitmap.Canvas.Brush.Style := bsSolid;
-    GlyphBitmap.Canvas.Brush.Color := clWhite;
-    GlyphBitmap.Canvas.FillRect(0, 0, GlyphW, GlyphH);
-
-    GlyphBitmap.Canvas.Font.Assign(FLazFont);
-    GlyphBitmap.Canvas.Font.Color := clBlack;
-    GlyphBitmap.Canvas.Brush.Style := bsClear;
-    GlyphBitmap.Canvas.TextOut(GLYPH_PAD_X, GLYPH_PAD_Y, CharStr);
-
-    IntfImg := GlyphBitmap.CreateIntfImage;
-    if IntfImg = nil then
-      raise Exception.Create('CreateIntfImage failed for glyph');
-
-    GetMem(Data, GlyphW * GlyphH * 4);
-    P := Data;
-
-    for Y := 0 to GlyphH - 1 do
-      for X := 0 to GlyphW - 1 do
-      begin
-        C := IntfImg.Colors[X, Y];
-
-        Alpha := 255 - (((C.Red shr 8) + (C.Green shr 8) + (C.Blue shr 8)) div 3);
-        if Alpha < 8 then
-          Alpha := 0;
-
-        P^ := 255;
-        Inc(P);
-        P^ := 255;
-        Inc(P);
-        P^ := 255;
-        Inc(P);
-        P^ := Alpha;
-        Inc(P);
-      end;
-
-    glBindTexture(GL_TEXTURE_2D, FAtlasTex);
-    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-    glTexSubImage2D(
-      GL_TEXTURE_2D, 0,
-      PlaceX, PlaceY,
-      GlyphW, GlyphH,
-      GL_RGBA, GL_UNSIGNED_BYTE,
-      Data);
-    glBindTexture(GL_TEXTURE_2D, 0);
-
-    P := Data;
-    for Y := 0 to GlyphH - 1 do
-    begin
-      RowDst := @FAtlasData[((PlaceY + Y) * FAtlasWidth + PlaceX) * 4];
-      Move(P^, RowDst^, GlyphW * 4);
-      Inc(P, GlyphW * 4);
-    end;
-
-    Result.TexID := FAtlasTex;
-
-    Result.U0 := PlaceX / FAtlasWidth;
-    Result.V0 := PlaceY / FAtlasHeight;
-    Result.U1 := (PlaceX + GlyphW) / FAtlasWidth;
-    Result.V1 := (PlaceY + GlyphH) / FAtlasHeight;
-
-    Result.Width := GlyphW;
-    Result.Height := GlyphH;
-
-    Result.BearingX := 0;
-    Result.BearingY := GlyphH;
-    Result.Advance := InkW;
-
-    FGlyphCache.Add(Key, Result);
-
-    Inc(FAtlasX, GlyphW + GLYPH_CELL_SPACING);
-    if GlyphH > FAtlasRowHeight then
-      FAtlasRowHeight := GlyphH;
-
-  finally
-    if Data <> nil then
-      FreeMem(Data);
-    IntfImg.Free;
-    GlyphBitmap.Free;
+  if (GlyphW > FGlyphBitmapCanvas.Width) or (GlyphH > FGlyphBitmapCanvas.Height) then
+  begin
+    FGlyphBitmapCanvas.SetSize(
+      Max(GlyphW, FGlyphBitmapCanvas.Width),
+      Max(GlyphH, FGlyphBitmapCanvas.Height)
+      );
   end;
+
+  FGlyphBitmapCanvas.Canvas.Brush.Style := bsSolid;
+  FGlyphBitmapCanvas.Canvas.Brush.Color := clBlack;
+  FGlyphBitmapCanvas.Canvas.FillRect(0, 0, GlyphW, GlyphH);
+
+  FGlyphBitmapCanvas.Canvas.Font.Assign(FLazFont);
+  FGlyphBitmapCanvas.Canvas.Font.Color := clWhite;
+  FGlyphBitmapCanvas.Canvas.Brush.Style := bsClear;
+  FGlyphBitmapCanvas.Canvas.TextOut(GLYPH_PAD_X, GLYPH_PAD_Y, CharStr);
+
+  if FAtlasX + GlyphW > FAtlasWidth then
+  begin
+    FAtlasX := 0;
+    Inc(FAtlasY, FAtlasRowHeight + GLYPH_CELL_SPACING);
+    FAtlasRowHeight := 0;
+  end;
+
+  NeedReset := (FAtlasY + GlyphH > FAtlasHeight);
+  if NeedReset then
+  begin
+    Flush;
+    ResetAtlas;
+  end;
+
+  PlaceX := FAtlasX;
+  PlaceY := FAtlasY;
+
+  for Y := 0 to GlyphH - 1 do
+  begin
+    SrcRow := FGlyphBitmapCanvas.ScanLine[Y];
+    DstRow := @FAtlasData[((PlaceY + Y) * FAtlasWidth + PlaceX) * 4];
+
+    for X := 0 to GlyphW - 1 do
+    begin
+      // SrcRow[X*4+0] = B, [1] = G, [2] = R, [3] = A (pf32bit на Windows)
+      Lum := SrcRow[X * 4 + 2]; // R
+      Alpha := Lum;
+      if Alpha < 8 then Alpha := 0;
+
+      DstRow[X * 4 + 0] := 255;   // R
+      DstRow[X * 4 + 1] := 255;   // G
+      DstRow[X * 4 + 2] := 255;   // B
+      DstRow[X * 4 + 3] := Alpha; // A
+    end;
+  end;
+
+  if not FAtlasNeedFlush then
+  begin
+    FAtlasDirtyX0 := PlaceX;
+    FAtlasDirtyY0 := PlaceY;
+    FAtlasDirtyX1 := PlaceX + GlyphW;
+    FAtlasDirtyY1 := PlaceY + GlyphH;
+    FAtlasNeedFlush := True;
+  end
+  else
+  begin
+    if PlaceX < FAtlasDirtyX0 then FAtlasDirtyX0 := PlaceX;
+    if PlaceY < FAtlasDirtyY0 then FAtlasDirtyY0 := PlaceY;
+    if PlaceX + GlyphW > FAtlasDirtyX1 then FAtlasDirtyX1 := PlaceX + GlyphW;
+    if PlaceY + GlyphH > FAtlasDirtyY1 then FAtlasDirtyY1 := PlaceY + GlyphH;
+  end;
+
+  Result.TexID := FAtlasTex;
+  Result.U0 := PlaceX / FAtlasWidth;
+  Result.V0 := PlaceY / FAtlasHeight;
+  Result.U1 := (PlaceX + GlyphW) / FAtlasWidth;
+  Result.V1 := (PlaceY + GlyphH) / FAtlasHeight;
+  Result.Width := GlyphW;
+  Result.Height := GlyphH;
+  Result.BearingX := 0;
+  Result.BearingY := GlyphH;
+  Result.Advance := InkW;
+
+  FGlyphCache.Add(Key, Result);
+
+  Inc(FAtlasX, GlyphW + GLYPH_CELL_SPACING);
+  if GlyphH > FAtlasRowHeight then
+    FAtlasRowHeight := GlyphH;
+end;
+
+procedure TGL2DCanvas.FlushAtlasDirtyRegion;
+begin
+  if not FAtlasNeedFlush then Exit;
+  if FAtlasTex = 0 then Exit;
+
+  glBindTexture(GL_TEXTURE_2D, FAtlasTex);
+  glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+
+  glPixelStorei(GL_UNPACK_ROW_LENGTH, FAtlasWidth);
+
+  glTexSubImage2D(
+    GL_TEXTURE_2D, 0,
+    FAtlasDirtyX0,
+    FAtlasDirtyY0,
+    FAtlasDirtyX1 - FAtlasDirtyX0,
+    FAtlasDirtyY1 - FAtlasDirtyY0,
+    GL_RGBA, GL_UNSIGNED_BYTE, @FAtlasData[(FAtlasDirtyY0 *
+    FAtlasWidth + FAtlasDirtyX0) * 4]
+    );
+
+  glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+  glBindTexture(GL_TEXTURE_2D, 0);
+
+  FAtlasNeedFlush := False;
 end;
 
 procedure TGL2DCanvas.BeginDraw;
@@ -2663,7 +2670,6 @@ begin
   if not Assigned(FControl) then
     Exit;
 
-  FControl.MakeCurrent;
   EnsureGLReady;
   FFrameStartTime := GetTickMs;
   SaveGLState;
@@ -2719,12 +2725,15 @@ begin
     Exit;
 
   //glFinish;
-  FLastFrameTimeMs := 0.0;
+ { FLastFrameTimeMs := 0.0;
   FLastFrameTimeMs := GetTickMs - FFrameStartTime;
 
   S := Format('%.2f ms', [FLastFrameTimeMs]);
-  S := S + Format(' Batches: %d,  Vertices: %d , Indices: %d', [Length(FBatches),FVertexCount,  FIndexCount] );
-  Ver := Format('GL_VENDOR   = %s, GL_RENDERER = %s, GL_VERSION  = %s', [StrPas(PChar(glGetString(GL_VENDOR))), StrPas(PChar(glGetString(GL_RENDERER))), StrPas(PChar(glGetString(GL_VERSION)))]);
+  S := S + Format(' Batches: %d,  Vertices: %d , Indices: %d',
+    [Length(FBatches), FVertexCount, FIndexCount]);
+  Ver := Format('GL_VENDOR   = %s, GL_RENDERER = %s, GL_VERSION  = %s',
+    [StrPas(PChar(glGetString(GL_VENDOR))), StrPas(PChar(glGetString(GL_RENDERER))),
+    StrPas(PChar(glGetString(GL_VERSION)))]);}
   OldFontColor := FLazFont.Color;
   OldBrushStyle := FLazBrush.Style;
   OldClip := FClipRect;
@@ -2736,8 +2745,8 @@ begin
     FClipping := False;
     ApplyScissor;
 
-    DoTextOut(6, 6, S);
-    DoTextOut(6, 28, Ver);
+    //DoTextOut(6, 6, S);
+    //DoTextOut(6, 28, Ver);
   finally
     FLazFont.Color := OldFontColor;
     FLazBrush.Style := OldBrushStyle;
@@ -3060,53 +3069,88 @@ end;
 
 procedure TGL2DCanvas.DoTextOut(x, y: integer; Text: ansistring);
 var
-  Key: string;
-  Entry: TTextCacheEntry;
-  TexID: GLuint;
-  W, H: integer;
+  I, J, Len: integer;
+  CodePoint: cardinal;
+  CharLen: SizeInt;
+  GlyphInfo: TGlyphInfo;
+  PenX: single;
   TextColor: TVec4;
+  Vert0, Vert1, Vert2, Vert3: TAAColorVertex;
+  D: TVec4;
 begin
   if Text = '' then Exit;
   if not Assigned(FControl) then Exit;
-
-  FControl.MakeCurrent;
   EnsureGLReady;
 
-  // === CACHED SINGLE-TEXTURE TEXT (fast + correct) ===
-  Key := Format('%s|%s|%d|%d|%d', [Text, FLazFont.Name, FLazFont.Size,
-    integer(FLazFont.Style), FLazFont.Color]);
+  TextColor := ColorToVec4(FLazFont.Color, 1.0);
+  PenX := x;
+  I := 1;
+  Len := Length(Text);
 
-  if FTextCache.TryGetValue(Key, Entry) then
+  J := 1;
+  while J <= Len do
   begin
-    // Fast path - reuse cached texture
-    TexID := Entry.TexID;
-    W := Entry.Width;
-    H := Entry.Height;
-    Entry.LastUsedFrame := FCurrentFrame;
-    FTextCache[Key] := Entry;
-  end
-  else
-  begin
-    // First time - render to texture
-    {$IFDEF MSWINDOWS}
-    TexID := CreateTextTexture_Windows(Text, W, H);
-    {$ELSE}
-    TexID := CreateTextTexture_Linux(Text, W, H);
-    {$ENDIF}
-
-    if TexID = 0 then Exit;
-
-    Entry.TexID := TexID;
-    Entry.Width := W;
-    Entry.Height := H;
-    Entry.LastUsedFrame := FCurrentFrame;
-    FTextCache.Add(Key, Entry);
+    CharLen := UTF8CodepointToUnicode(@Text[J], CodePoint);
+    if CharLen <= 0 then
+    begin
+      CodePoint := Ord('?');
+      CharLen := 1;
+    end;
+    GetGlyphInfo(CodePoint);
+    Inc(J, CharLen);
   end;
 
-  TextColor := ColorToVec4(FLazFont.Color, 1.0);
+  PrepareBatch(FAtlasTex, FLazPen.Style, FLazBrush.Style);
 
-  PrepareBatch(TexID, FLazPen.Style, FLazBrush.Style);
-  AddTexturedQuad(x, y, x + W, y + H, 0, 0, 1, 1, TexID, TextColor);
+  while I <= Len do
+  begin
+    CharLen := UTF8CodepointToUnicode(@Text[I], CodePoint);
+    if CharLen <= 0 then
+    begin
+      CodePoint := Ord('?');
+      CharLen := 1;
+    end;
+
+    GlyphInfo := GetGlyphInfo(CodePoint);
+
+    if GlyphInfo.TexID <> 0 then
+    begin
+
+      D.X := 0;
+      D.Y := 0;
+      D.Z := 0;
+      D.W := 0;
+
+      Vert0.Position := MakeVec2(PenX, y);
+      Vert0.Local := MakeVec2(GlyphInfo.U0, GlyphInfo.V0);
+      Vert0.Data0 := D;
+      Vert0.Color := TextColor;
+      Vert0.Kind := Ord(pkTexture);
+
+      Vert1.Position := MakeVec2(PenX + GlyphInfo.Width, y);
+      Vert1.Local := MakeVec2(GlyphInfo.U1, GlyphInfo.V0);
+      Vert1.Data0 := D;
+      Vert1.Color := TextColor;
+      Vert1.Kind := Ord(pkTexture);
+
+      Vert2.Position := MakeVec2(PenX + GlyphInfo.Width, y + GlyphInfo.Height);
+      Vert2.Local := MakeVec2(GlyphInfo.U1, GlyphInfo.V1);
+      Vert2.Data0 := D;
+      Vert2.Color := TextColor;
+      Vert2.Kind := Ord(pkTexture);
+
+      Vert3.Position := MakeVec2(PenX, y + GlyphInfo.Height);
+      Vert3.Local := MakeVec2(GlyphInfo.U0, GlyphInfo.V1);
+      Vert3.Data0 := D;
+      Vert3.Color := TextColor;
+      Vert3.Kind := Ord(pkTexture);
+
+      AddQuad(Vert0, Vert1, Vert2, Vert3);
+    end;
+
+    PenX := PenX + GlyphInfo.Advance;
+    Inc(I, CharLen);
+  end;
 end;
 
 procedure TGL2DCanvas.DoGetTextSize(Text: ansistring; var w, h: integer);
@@ -3215,7 +3259,6 @@ begin
   if (image = nil) or (image.Width <= 0) or (image.Height <= 0) then Exit;
   if not Assigned(FControl) then Exit;
 
-  FControl.MakeCurrent;
   EnsureGLReady;
 
   Tex := GetTexture(image);
@@ -3474,7 +3517,6 @@ begin
 
   if not Assigned(FControl) then Exit;
 
-  FControl.MakeCurrent;
   EnsureGLReady;
 
   Tex := GetTexture(Source);
