@@ -38,10 +38,6 @@ type
   { Forward }
   TInteractionStateMachine = class;
 
-  { ===================================================================== }
-  { TEditorInteractionState                                                }
-  { ===================================================================== }
-
   TEditorInteractionState = class
   protected
     FMachine: TInteractionStateMachine;
@@ -64,10 +60,6 @@ type
     function GetName: string; virtual;
   end;
 
-  { ===================================================================== }
-  { Concrete states                                                        }
-  { ===================================================================== }
-
   TIdleState = class(TEditorInteractionState)
   public
     procedure Enter; override;
@@ -79,6 +71,7 @@ type
 
   TNodeDragState = class(TEditorInteractionState)
   public
+    procedure Enter; override;
     procedure MouseMove(Shift: TShiftState; X, Y: integer); override;
     procedure MouseUp(Button: TMouseButton; Shift: TShiftState; X, Y: integer); override;
     procedure Cancel; override;
@@ -87,6 +80,7 @@ type
 
   TLinkDrawState = class(TEditorInteractionState)
   public
+    procedure Enter; override;
     procedure MouseMove(Shift: TShiftState; X, Y: integer); override;
     procedure MouseUp(Button: TMouseButton; Shift: TShiftState; X, Y: integer); override;
     procedure Cancel; override;
@@ -95,6 +89,7 @@ type
 
   TReconnectLinkState = class(TEditorInteractionState)
   public
+    procedure Enter; override;
     procedure MouseMove(Shift: TShiftState; X, Y: integer); override;
     procedure MouseUp(Button: TMouseButton; Shift: TShiftState; X, Y: integer); override;
     procedure Cancel; override;
@@ -103,6 +98,7 @@ type
 
   TBoxSelectState = class(TEditorInteractionState)
   public
+    procedure Enter; override;
     procedure MouseMove(Shift: TShiftState; X, Y: integer); override;
     procedure MouseUp(Button: TMouseButton; Shift: TShiftState; X, Y: integer); override;
     procedure Cancel; override;
@@ -119,15 +115,12 @@ type
 
   TResizeState = class(TEditorInteractionState)
   public
+    procedure Enter; override;
     procedure MouseMove(Shift: TShiftState; X, Y: integer); override;
     procedure MouseUp(Button: TMouseButton; Shift: TShiftState; X, Y: integer); override;
     procedure Cancel; override;
     function GetName: string; override;
   end;
-
-  { ===================================================================== }
-  { TInteractionStateMachine                                               }
-  { ===================================================================== }
 
   TInteractionStateMachine = class
   private
@@ -137,32 +130,27 @@ type
     FViewport: TNodeViewport;
     FGraph: TNodeGraph;
 
-    { Mouse tracking }
     FLeftButtonDown: boolean;
     FRightButtonDown: boolean;
     FRightMouseMoved: boolean;
     FStartMouseX, FStartMouseY: integer;
     FLastMouseX, FLastMouseY: integer;
 
-    { Link drawing / reconnect state }
     FTempFromPin: TNodePin;
     FTempMousePos: TPoint;
     FTempStartMousePos: TPoint;
     FDraggingLink: boolean;
 
-    { Node drag state }
     FDragCommandNodes: TCustomNodeList;
     FDragOldPositions: array of TPointF;
     FDragStartWorldPos: TPointF;
     FShowDragCoordinates: boolean;
 
-    { Box select state }
     FBoxStart: TPoint;
     FBoxCurrent: TPoint;
     FBoxStartWorld: TPointF;
     FBoxCurrentWorld: TPointF;
 
-    { Resize state }
     FResizeNode: TCustomNode;
     FResizeStartMouseX: integer;
     FResizeStartMouseY: integer;
@@ -171,7 +159,6 @@ type
     FResizeOldWidth: integer;
     FResizeOldHeight: integer;
 
-    { Reconnect state }
     FReconnectLink: TNodeLink;
     FReconnectFixedPin: TNodePin;
     FReconnectMovingFromSide: boolean;
@@ -194,7 +181,6 @@ type
     procedure KeyDown(var Key: word; Shift: TShiftState);
     procedure CancelCurrentOperation;
 
-    { Accessors for states and editor }
     property Editor: INodeEditorInteractionHost read FEditor;
     property Controller: TNodeEditorController read FController;
     property Viewport: TNodeViewport read FViewport;
@@ -251,11 +237,6 @@ type
 
 implementation
 
-
-{ ======================================================================== }
-{ Geometry helper                                                           }
-{ ======================================================================== }
-
 function NormalizeRectF(const R: TRectF): TRectF; inline;
 begin
   Result.Left := Min(R.Left, R.Right);
@@ -269,10 +250,6 @@ begin
   Result := not ((R1.Right < R2.Left) or (R1.Left > R2.Right) or
     (R1.Bottom < R2.Top) or (R1.Top > R2.Bottom));
 end;
-
-{ ======================================================================== }
-{ TEditorInteractionState                                                   }
-{ ======================================================================== }
 
 constructor TEditorInteractionState.Create(AMachine: TInteractionStateMachine);
 begin
@@ -335,10 +312,6 @@ begin
   Result := ClassName;
 end;
 
-{ ======================================================================== }
-{ TIdleState                                                                }
-{ ======================================================================== }
-
 procedure TIdleState.Enter;
 begin
   inherited;
@@ -379,7 +352,6 @@ begin
       FMachine.ResizeOldWidth := Node.Width;
       FMachine.ResizeOldHeight := Node.Height;
       FMachine.ChangeState(TResizeState.Create(FMachine));
-      Editor.Invalidate;
       System.Exit;
     end;
 
@@ -394,14 +366,14 @@ begin
         Editor.TogglePinSelection(Pin);
         Editor.NotifySelectionChanged;
         Editor.Invalidate;
-        System.Exit;
+        Exit;
       end
       else if ssShift in Shift then
       begin
         Editor.SelectPinInternal(Pin, True);
         Editor.NotifySelectionChanged;
         Editor.Invalidate;
-        System.Exit;
+        Exit;
       end;
 
       if not Editor.CanPinAcceptMoreConnections(Pin) then
@@ -410,7 +382,7 @@ begin
         Editor.SelectPinInternal(Pin, False);
         Editor.NotifySelectionChanged;
         Editor.Invalidate;
-        System.Exit;
+        Exit;
       end;
 
       Editor.ClearPinSelection;
@@ -419,7 +391,6 @@ begin
       FMachine.TempStartMousePos := Point(X, Y);
       FMachine.DraggingLink := False;
       FMachine.ChangeState(TLinkDrawState.Create(FMachine));
-      Editor.Invalidate;
       System.Exit;
     end;
 
@@ -454,7 +425,6 @@ begin
       FMachine.DraggingLink := False;
       Editor.NotifySelectionChanged;
       FMachine.ChangeState(TReconnectLinkState.Create(FMachine));
-      Editor.Invalidate;
       System.Exit;
     end;
 
@@ -487,7 +457,6 @@ begin
 
       Editor.NotifySelectionChanged;
       FMachine.ChangeState(TNodeDragState.Create(FMachine));
-      Editor.RequestRepaint(True);
       System.Exit;
     end;
 
@@ -500,7 +469,7 @@ begin
     FMachine.BoxCurrentWorld := WorldPos;
     Editor.NotifySelectionChanged;
     FMachine.ChangeState(TBoxSelectState.Create(FMachine));
-    Editor.RequestRepaint(True);
+    System.Exit;
   end
   else if Button = mbRight then
   begin
@@ -512,6 +481,7 @@ begin
     FMachine.LastMouseY := Y;
     Editor.SetContextWorldPos(WorldPos);
     FMachine.ChangeState(TPanState.Create(FMachine));
+    System.Exit;
   end;
 end;
 
@@ -534,9 +504,11 @@ begin
   Result := 'Idle';
 end;
 
-{ ======================================================================== }
-{ TNodeDragState                                                            }
-{ ======================================================================== }
+procedure TNodeDragState.Enter;
+begin
+  inherited;
+  Editor.RequestRepaint(True);
+end;
 
 procedure TNodeDragState.MouseMove(Shift: TShiftState; X, Y: integer);
 var
@@ -621,7 +593,7 @@ begin
   SetLength(FMachine.FDragOldPositions, 0);
   Editor.ClearSnapGuides;
   FMachine.ChangeState(TIdleState.Create(FMachine));
-  Editor.Invalidate;
+  System.Exit;
 end;
 
 procedure TNodeDragState.Cancel;
@@ -647,9 +619,11 @@ begin
   Result := 'NodeDrag';
 end;
 
-{ ======================================================================== }
-{ TLinkDrawState                                                            }
-{ ======================================================================== }
+procedure TLinkDrawState.Enter;
+begin
+  inherited;
+  Editor.Invalidate;
+end;
 
 procedure TLinkDrawState.MouseMove(Shift: TShiftState; X, Y: integer);
 begin
@@ -767,7 +741,7 @@ begin
   FMachine.DraggingLink := False;
   Editor.ClearSnapGuides;
   FMachine.ChangeState(TIdleState.Create(FMachine));
-  Editor.Invalidate;
+  System.Exit;
 end;
 
 procedure TLinkDrawState.Cancel;
@@ -783,9 +757,11 @@ begin
   Result := 'LinkDraw';
 end;
 
-{ ======================================================================== }
-{ TReconnectLinkState                                                       }
-{ ======================================================================== }
+procedure TReconnectLinkState.Enter;
+begin
+  inherited;
+  Editor.Invalidate;
+end;
 
 procedure TReconnectLinkState.MouseMove(Shift: TShiftState; X, Y: integer);
 begin
@@ -851,7 +827,7 @@ begin
   FMachine.ReconnectMovingFromSide := False;
   Editor.ClearSnapGuides;
   FMachine.ChangeState(TIdleState.Create(FMachine));
-  Editor.Invalidate;
+  System.Exit;
 end;
 
 procedure TReconnectLinkState.Cancel;
@@ -870,9 +846,11 @@ begin
   Result := 'ReconnectLink';
 end;
 
-{ ======================================================================== }
-{ TBoxSelectState                                                           }
-{ ======================================================================== }
+procedure TBoxSelectState.Enter;
+begin
+  inherited;
+  Editor.RequestRepaint(True);
+end;
 
 procedure TBoxSelectState.MouseMove(Shift: TShiftState; X, Y: integer);
 begin
@@ -933,7 +911,7 @@ begin
 
   Editor.NotifySelectionChanged;
   FMachine.ChangeState(TIdleState.Create(FMachine));
-  Editor.Invalidate;
+  System.Exit;
 end;
 
 procedure TBoxSelectState.Cancel;
@@ -945,10 +923,6 @@ function TBoxSelectState.GetName: string;
 begin
   Result := 'BoxSelect';
 end;
-
-{ ======================================================================== }
-{ TPanState                                                                 }
-{ ======================================================================== }
 
 procedure TPanState.MouseMove(Shift: TShiftState; X, Y: integer);
 begin
@@ -994,7 +968,7 @@ begin
 
   FMachine.RightMouseMoved := False;
   FMachine.ChangeState(TIdleState.Create(FMachine));
-  Editor.Invalidate;
+  System.Exit;
 end;
 
 procedure TPanState.Cancel;
@@ -1011,9 +985,11 @@ begin
   Result := 'Pan';
 end;
 
-{ ======================================================================== }
-{ TResizeState                                                              }
-{ ======================================================================== }
+procedure TResizeState.Enter;
+begin
+  inherited;
+  Editor.Invalidate;
+end;
 
 procedure TResizeState.MouseMove(Shift: TShiftState; X, Y: integer);
 begin
@@ -1052,7 +1028,7 @@ begin
   FMachine.ResizeNode := nil;
   Editor.ClearSnapGuides;
   FMachine.ChangeState(TIdleState.Create(FMachine));
-  Editor.Invalidate;
+  System.Exit;
 end;
 
 procedure TResizeState.Cancel;
@@ -1071,10 +1047,6 @@ function TResizeState.GetName: string;
 begin
   Result := 'Resize';
 end;
-
-{ ======================================================================== }
-{ TInteractionStateMachine                                                  }
-{ ======================================================================== }
 
 constructor TInteractionStateMachine.Create(AHost: INodeEditorInteractionHost;
   AController: TNodeEditorController; AViewport: TNodeViewport; AGraph: TNodeGraph);
@@ -1143,8 +1115,6 @@ begin
   if FCurrentState <> nil then FCurrentState.Cancel;
   ChangeState(TIdleState.Create(Self));
 end;
-
-{ --- Query properties ---------------------------------------------------- }
 
 function TInteractionStateMachine.GetIsReconnecting: boolean;
 begin
