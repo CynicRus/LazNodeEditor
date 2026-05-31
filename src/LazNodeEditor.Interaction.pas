@@ -778,25 +778,34 @@ procedure TReconnectLinkState.MouseUp(Button: TMouseButton; Shift: TShiftState;
 var
   TargetNode: TCustomNode;
   TargetPin: TNodePin;
+  OldPin: TNodePin;
   AllowConnect: boolean;
 begin
   if Button <> mbLeft then Exit;
 
   TargetPin := Editor.HitTestPinAt(X, Y, TargetNode);
 
-  if (TargetPin <> nil) and (FMachine.ReconnectFixedPin <> nil) then
+  if (TargetPin <> nil) and (FMachine.ReconnectLink <> nil) and
+     (FMachine.ReconnectFixedPin <> nil) then
   begin
+    // Определяем, какой пин был старым на реконнекте
+    if FMachine.ReconnectMovingFromSide then
+      OldPin := FMachine.ReconnectLink.FromPin
+    else
+      OldPin := FMachine.ReconnectLink.ToPin;
+
     if FMachine.ReconnectMovingFromSide then
     begin
       if Editor.CanPinAcceptMoreConnections(TargetPin) and
-        Editor.CanPinAcceptMoreConnections(FMachine.ReconnectFixedPin) and
-        Graph.CanConnect(TargetPin, FMachine.ReconnectFixedPin) then
+         Editor.CanPinAcceptMoreConnections(FMachine.ReconnectFixedPin) and
+         Graph.CanConnect(TargetPin, FMachine.ReconnectFixedPin) then
       begin
         AllowConnect := Editor.BeforeConnectPins(TargetPin, FMachine.ReconnectFixedPin);
         if AllowConnect then
         begin
-          Graph.RemoveLink(FMachine.ReconnectLink);
-          Graph.AddLink(TNodeLink.Create(TargetPin, FMachine.ReconnectFixedPin));
+          Graph.ExecuteCommand(TReconnectLinkCommand.Create(
+            Graph, FMachine.ReconnectLink, OldPin, TargetPin));
+
           Editor.UpdatePinsConnectedState;
           Editor.AfterConnectPins(TargetPin, FMachine.ReconnectFixedPin);
         end;
@@ -805,14 +814,15 @@ begin
     else
     begin
       if Editor.CanPinAcceptMoreConnections(FMachine.ReconnectFixedPin) and
-        Editor.CanPinAcceptMoreConnections(TargetPin) and
-        Graph.CanConnect(FMachine.ReconnectFixedPin, TargetPin) then
+         Editor.CanPinAcceptMoreConnections(TargetPin) and
+         Graph.CanConnect(FMachine.ReconnectFixedPin, TargetPin) then
       begin
         AllowConnect := Editor.BeforeConnectPins(FMachine.ReconnectFixedPin, TargetPin);
         if AllowConnect then
         begin
-          Graph.RemoveLink(FMachine.ReconnectLink);
-          Graph.AddLink(TNodeLink.Create(FMachine.ReconnectFixedPin, TargetPin));
+          Graph.ExecuteCommand(TReconnectLinkCommand.Create(
+            Graph, FMachine.ReconnectLink, OldPin, TargetPin));
+
           Editor.UpdatePinsConnectedState;
           Editor.AfterConnectPins(FMachine.ReconnectFixedPin, TargetPin);
         end;
@@ -827,7 +837,6 @@ begin
   FMachine.ReconnectMovingFromSide := False;
   Editor.ClearSnapGuides;
   FMachine.ChangeState(TIdleState.Create(FMachine));
-  System.Exit;
 end;
 
 procedure TReconnectLinkState.Cancel;

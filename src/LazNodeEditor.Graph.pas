@@ -45,7 +45,7 @@ type
   TCustomNodeList = specialize TObjectList<TCustomNode>;
 
   { TNodeGraph — MODEL}
- type
+type
   TNodeGraph = class(TNoRefCountObject, INodeGraphView)
   private
     FDefaultLinkDrawStyle: TLinkDrawStyle;
@@ -65,6 +65,7 @@ type
     FUpdateLock: integer;
 
     FNodeById: specialize TDictionary<string, TCustomNode>;
+    FLinkById: specialize TDictionary<string, TNodeLink>;
 
     procedure DoGraphChanged;
     procedure RemoveLinksToInput(APin: TNodePin);
@@ -104,6 +105,7 @@ type
 
     function FindNodeById(const AId: string): TCustomNode;
     function FindPinById(const AId: string): TNodePin;
+    function FindLinkById(const AId: string): TNodeLink;
     function CanConnect(P1, P2: TNodePin): boolean;
     function LinkExists(FromPin, ToPin: TNodePin): boolean;
 
@@ -226,7 +228,7 @@ type
   end;
 
   { TMoveNodesCommand }
-   TMoveNodesCommand = class(TGraphCommand)
+  TMoveNodesCommand = class(TGraphCommand)
   private
     FNodeIds: TStringList;
     FOldX: array of single;
@@ -258,6 +260,21 @@ type
     procedure Undo; override;
   end;
 
+  { TReconnectLinkCommand }
+  TReconnectLinkCommand = class(TGraphCommand)
+  private
+    FOldPinId: string;
+    FNewPinId: string;
+    FLinkId: string;
+    FFrom: boolean;
+  public
+    constructor Create(AGraph: TNodeGraph; ALink: TNodeLink; AOldPin, ANewPin: TNodePin);
+      reintroduce;
+
+    procedure DoExecute; override;
+    procedure Undo; override;
+  end;
+
   { TChangeNodePropertyCommand }
   TChangeNodePropertyCommand = class(TGraphCommand)
   private
@@ -271,6 +288,7 @@ type
     procedure DoExecute; override;
     procedure Undo; override;
   end;
+
 
 
 function NodePaintCompare(Item1, Item2: Pointer): integer;
@@ -378,10 +396,10 @@ begin
           V.BooleanValue := VObj.Get('value', V.BooleanValue);
 
         nvkJSON:
-          begin
-            S := VObj.Get('value', V.JSONValue);
-            V.JSONValue := S;
-          end;
+        begin
+          S := VObj.Get('value', V.JSONValue);
+          V.JSONValue := S;
+        end;
       end;
     end;
   end;
@@ -392,7 +410,7 @@ end;
 constructor TNodeGraph.Create;
 begin
   inherited Create;
-  FNodes := TNodeDAG.Create(true);
+  FNodes := TNodeDAG.Create(True);
   FLinks := TNodeLinkList.Create(True);
   FRegistry := TNodeRegistry.Create;
   FUndoStack := TGraphCommandList.Create(True);
@@ -402,6 +420,7 @@ begin
   FLinkRouter := TNodeLinkRouter.Create(Self);
 
   FNodeById := specialize TDictionary<string, TCustomNode>.Create;
+  FLinkById := specialize TDictionary<string, TNodeLink>.Create;
 
   FRegistry.RegisterNodeEx('default', 'Default Node', 'Basic',
     'Generic test node.', 'default,test', TDefaultNode);
@@ -430,6 +449,7 @@ begin
   FLinks.Free;
   FNodes.Free;
   FNodeById.Free;
+  FLinkById.Free;
   inherited Destroy;
 end;
 
@@ -493,7 +513,8 @@ begin
     begin
       if Assigned(FOnLinkRemoved) then
         FOnLinkRemoved(Self, L);
-
+      if Assigned(FLinkById) then
+        FLinkById.Remove(L.Id);
       FLinks.Delete(i);
     end;
   end;
@@ -528,6 +549,8 @@ begin
       if Assigned(FOnLinkRemoved) then
         FOnLinkRemoved(Self, L);
 
+      if Assigned(FLinkById) then
+        FLinkById.Remove(L.Id);
       FLinks.Delete(i);
     end;
   end;
@@ -600,6 +623,8 @@ begin
   end;
 
   FLinks.Add(ALink);
+  if Assigned(FLinkById) then
+    FLinkById.AddOrSetValue(ALink.Id, ALink);
 
   if Assigned(FOnLinkAdded) then
     FOnLinkAdded(Self, ALink);
@@ -626,6 +651,8 @@ begin
   if Assigned(FOnLinkRemoved) then
     FOnLinkRemoved(Self, ALink);
 
+  if Assigned(FLinkById) and (ALink <> nil) then
+    FLinkById.Remove(ALink.Id);
   if FLinks.Remove(ALink) >= 0 then
   begin
     if (NFrom <> nil) and (NTo <> nil) then
@@ -911,6 +938,14 @@ begin
   end;
 end;
 
+function TNodeGraph.FindLinkById(const AId: string): TNodeLink;
+begin
+  Result := nil;
+  if (AId = '') or (FLinkById = nil) then
+    Exit;
+  FLinkById.TryGetValue(AId, Result);
+end;
+
 function TNodeGraph.CanConnect(P1, P2: TNodePin): boolean;
 var
   OutPin, InPin: TNodePin;
@@ -1083,7 +1118,10 @@ procedure TNodeGraph.Clear;
 begin
   FLinks.Clear;
   FNodes.Clear; // TDAG.Clear
-  if Assigned(FNodeById) then FNodeById.Clear;
+  if Assigned(FNodeById) then
+    FNodeById.Clear;
+  if Assigned(FLinkById) then
+    FLinkById.Clear;
   DoGraphChanged;
 end;
 
@@ -1773,9 +1811,8 @@ begin
   FGraph.AddLink(L);
 end;
 
-constructor TMoveNodesCommand.Create(AGraph: TNodeGraph;
-  ANodes: TCustomNodeList; const AOldPositions, ANewPositions: array of TPointF
-  );
+constructor TMoveNodesCommand.Create(AGraph: TNodeGraph; ANodes: TCustomNodeList;
+  const AOldPositions, ANewPositions: array of TPointF);
 var
   i, C: integer;
   N: TCustomNode;
@@ -1900,6 +1937,72 @@ begin
   N.Height := FOldHeight;
 
   FGraph.DoGraphChanged;
+end;
+
+{ TReconnectLinkCommand }
+
+{ TReconnectLinkCommand }
+
+constructor TReconnectLinkCommand.Create(AGraph: TNodeGraph; ALink: TNodeLink;
+  AOldPin, ANewPin: TNodePin);
+begin
+  inherited Create(AGraph, 'Reconnect link');
+
+  if (AOldPin = nil) or (ANewPin = nil) then
+    Exit;
+
+  FFrom := ALink.FromPin = AOldPin;
+
+  FOldPinId := AOldPin.Id;
+  FNewPinId := ANewPin.Id;
+
+  FLinkId := ALink.Id;
+end;
+
+procedure TReconnectLinkCommand.DoExecute;
+var
+  NewPin: TNodePin;
+  L: TNodeLink;
+begin
+  if FGraph = nil then
+    Exit;
+
+  NewPin := FGraph.FindPinById(FNewPinId);
+
+  if NewPin = nil then
+    Exit;
+
+  L := FGraph.FindLinkById(FLinkId);
+  if L = nil then
+    Exit;
+
+  if FFrom then
+    L.FromPin := NewPin
+  else
+    L.ToPin := NewPin;
+end;
+
+procedure TReconnectLinkCommand.Undo;
+var
+  OldPin: TNodePin;
+  L: TNodeLink;
+begin
+  if FGraph = nil then
+    Exit;
+
+  OldPin := FGraph.FindPinById(FOldPinId);
+
+  if OldPin = nil then
+    Exit;
+
+  L := FGraph.FindLinkById(FLinkId);
+  if L = nil then
+    Exit;
+
+  if FFrom then
+    L.FromPin := OldPin
+  else
+    L.ToPin := OldPin;
 end;
 
 constructor TChangeNodePropertyCommand.Create(AGraph: TNodeGraph;
