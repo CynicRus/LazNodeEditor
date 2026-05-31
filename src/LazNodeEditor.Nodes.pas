@@ -60,6 +60,8 @@ type
     HeaderColor: TColor;
     BodyColor: TColor;
     Selected: boolean;
+    PinTextColor: TColor;
+    BodyTextColor:TColor;
 
     VisualKind: TNodeVisualKind;
     CommentText: string;
@@ -253,6 +255,8 @@ begin
   Collapsed := False;
   ZOrder := 0;
   Connected := False;
+  BodyTextColor := clBlack;
+  PinTextColor := clBlack;
 end;
 
 destructor TCustomNode.Destroy;
@@ -849,7 +853,7 @@ begin
     Canvas.Brush.Color := HeaderColor;
     Canvas.FillRect(HeaderR);
 
-    Canvas.Font.Color := clBlack;
+    Canvas.Font.Color := BodyTextColor;
     Canvas.Font.Size := Max(7, Round(10 * AState.Zoom));
     Canvas.Brush.Style := bsClear;
     Canvas.TextOut(R.Left + 8, R.Top + 5, Title);
@@ -898,7 +902,7 @@ begin
 
   Canvas.Rectangle(R);
 
-  Canvas.Font.Color := clBlack;
+  Canvas.Font.Color := BodyTextColor;
   Canvas.Font.Size := Max(6, Round(10 * AState.Zoom));
   Canvas.TextOut(R.Left + 8, R.Top + Max(4, Round(6 * AState.Zoom)), Title);
 
@@ -1030,7 +1034,7 @@ begin
   if S = '' then
     Exit;
 
-  Canvas.Font.Color := clBlack;
+  Canvas.Font.Color := PinTextColor;
   Canvas.Font.Size := Max(6, Round(10 * AState.Zoom));
   Canvas.Brush.Style := bsClear;
 
