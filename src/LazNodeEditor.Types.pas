@@ -63,7 +63,7 @@ type
     ldsBezier,
     ldsStraight,
     ldsOrthogonal
-  );
+    );
 
   TPointFArray = array of TPointF;
   TRectFArray = array of TRectF;
@@ -75,7 +75,7 @@ type
   TGraphLinkEvent = procedure(Sender: TObject; ALink: TObject) of object;
   TGraphChangedEvent = procedure(Sender: TObject) of object;
   TEditorZoomChangedEvent = procedure(Sender: TObject) of object;
-  TIsLinkSelectedFunc = function(ALink: TNodeLink): Boolean of object;
+  TIsLinkSelectedFunc = function(ALink: TNodeLink): boolean of object;
 
   TNodeRenderState = record
     Zoom: double;
@@ -94,6 +94,10 @@ type
     TempFromPin: TObject;
     TempMousePos: TPoint;
     HoveredPinCompatible: boolean;
+
+    DetailLevel: integer;     // 0 = tiny, 1 = minimal, 2 = medium, 3 = full
+    ShowNodeTitle: boolean;
+    ShowPinLabels: boolean;
 
     IsLinkSelected: TIsLinkSelectedFunc;
   end;
@@ -323,22 +327,22 @@ end;
 
 function PointInsideRectF(const P: TPointF; const R: TRectF): boolean; inline;
 begin
-  Result := (P.X >= R.Left) and (P.X <= R.Right) and
-            (P.Y >= R.Top) and (P.Y <= R.Bottom);
+  Result := (P.X >= R.Left) and (P.X <= R.Right) and (P.Y >= R.Top) and
+    (P.Y <= R.Bottom);
 end;
 
 function SegmentHitsRectF(const A, B: TPointF; const R: TRectF): boolean;
 begin
-  Result := LineIntersectsRect(Round(A.X), Round(A.Y), Round(B.X), Round(B.Y),
-    Rect(Round(R.Left), Round(R.Top), Round(R.Right), Round(R.Bottom)));
+  Result := LineIntersectsRect(Round(A.X), Round(A.Y), Round(B.X),
+    Round(B.Y), Rect(Round(R.Left), Round(R.Top), Round(R.Right), Round(R.Bottom)));
 end;
 
 function SideNormal(ASide: TPinSide): TPointF; inline;
 begin
   case ASide of
-    psLeft:   Result := PointF(-1, 0);
-    psRight:  Result := PointF(1, 0);
-    psTop:    Result := PointF(0, -1);
+    psLeft: Result := PointF(-1, 0);
+    psRight: Result := PointF(1, 0);
+    psTop: Result := PointF(0, -1);
     psBottom: Result := PointF(0, 1);
   end;
 end;

@@ -57,6 +57,9 @@ type
   private
     FGraph: TNodeGraph;
     FController: TNodeEditorController;
+    FMinDetailZoom: double;
+    FMinPinLabelZoom: double;
+    FMinTitleZoom: double;
     FViewport: TNodeViewport;
     FRenderer: INodeEditorRenderer;
     FRenderContext: TRenderContext;
@@ -119,7 +122,7 @@ type
     procedure BuildRenderContext;
     procedure GLControlPaint(Sender: TObject);
     procedure NodeGraphChanged(Sender: TObject);
-    procedure ControllerSelectionChanged(Sender: TObject);deprecated;
+    procedure ControllerSelectionChanged(Sender: TObject); deprecated;
     procedure DoPinSelectionChanged(Sender: TObject);
 
     procedure InvalidateSortedNodes;
@@ -250,7 +253,7 @@ type
     function SelectedNodeCount: integer;
     function SelectedLinkCount: integer;
     function GetSelectedNode(Index: integer): TCustomNode;
-    function IsLinkSelected(ALink: TNodeLink): Boolean;
+    function IsLinkSelected(ALink: TNodeLink): boolean;
 
     procedure FitToSelection;
     procedure FrameAll;
@@ -297,6 +300,10 @@ type
       write FShowSnapGuides default True;
     property SnapToNodes: boolean read FSnapToNodes write FSnapToNodes default True;
     property NodeSnapDistance: single read FNodeSnapDistance write FNodeSnapDistance;
+    property MinTitleZoom: double read FMinTitleZoom write FMinTitleZoom;
+    property MinPinLabelZoom: double read FMinPinLabelZoom
+      write FMinPinLabelZoom;
+    property MinDetailLevelZoom: double read FMinDetailZoom write FMinDetailZoom;
 
     property OnSelectionChanged: TNodeSelectionChangedEvent
       read FOnSelectionChanged write FOnSelectionChanged;
@@ -319,6 +326,7 @@ type
       read FOnAfterConnectPins write FOnAfterConnectPins;
     property LinkDrawStyle: TLinkDrawStyle read GetLinkDrawStyle
       write SetLinkDrawStyle default ldsBezier;
+
   end;
 
 function NodeVisualLayer(ANode: TCustomNode): integer; inline;
@@ -458,6 +466,10 @@ begin
   FSnapToNodes := True;
   FNodeSnapDistance := 10.0;
   FShowSnapGuides := True;
+
+  FMinTitleZoom := 0.45;
+  FMinPinLabelZoom := 0.75;
+  FMinDetailZoom := 0.25;
 
   FLastHoverX := Low(integer);
   FLastHoverY := Low(integer);
@@ -1406,6 +1418,39 @@ begin
   FRenderContext.RenderState.Zoom := FViewport.Zoom;
   FRenderContext.RenderState.OffsetX := FViewport.OffsetX;
   FRenderContext.RenderState.OffsetY := FViewport.OffsetY;
+
+  FRenderContext.RenderState.Zoom := FViewport.Zoom;
+  FRenderContext.RenderState.OffsetX := FViewport.OffsetX;
+  FRenderContext.RenderState.OffsetY := FViewport.OffsetY;
+
+  with FRenderContext.RenderState do
+  begin
+    if FViewport.Zoom >= FMinPinLabelZoom then
+    begin
+      DetailLevel := 3;     // full
+      ShowNodeTitle := True;
+      ShowPinLabels := True;
+    end
+    else if FViewport.Zoom >= FMinTitleZoom then
+    begin
+      DetailLevel := 2;     // medium
+      ShowNodeTitle := True;
+      ShowPinLabels := False;
+    end
+    else if FViewport.Zoom >= FMinDetailZoom then
+    begin
+      DetailLevel := 1;     // minimal
+      ShowNodeTitle := True;
+      ShowPinLabels := False;
+    end
+    else
+    begin
+      DetailLevel := 0;     // tiny (only color blocks)
+      ShowNodeTitle := False;
+      ShowPinLabels := False;
+    end;
+  end;
+
   FRenderContext.RenderState.PinRadius := 8;
   FRenderContext.RenderState.ResizeHandleSize := 12;
   FRenderContext.RenderState.HoveredNode := FHoveredNode;
@@ -1735,11 +1780,10 @@ begin
   Result := FController.Selection.GetNode(Index);
 end;
 
-function TLazNodeEditor.IsLinkSelected(ALink: TNodeLink): Boolean;
+function TLazNodeEditor.IsLinkSelected(ALink: TNodeLink): boolean;
 begin
-  Result := (FController <> nil) and
-            (FController.Selection <> nil) and
-            FController.Selection.ContainsLink(ALink);
+  Result := (FController <> nil) and (FController.Selection <> nil) and
+    FController.Selection.ContainsLink(ALink);
 end;
 
 procedure TLazNodeEditor.FitToSelection;

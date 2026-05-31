@@ -61,7 +61,7 @@ type
     BodyColor: TColor;
     Selected: boolean;
     PinTextColor: TColor;
-    BodyTextColor:TColor;
+    BodyTextColor: TColor;
 
     VisualKind: TNodeVisualKind;
     CommentText: string;
@@ -856,9 +856,10 @@ begin
     Canvas.Font.Color := BodyTextColor;
     Canvas.Font.Size := Max(7, Round(10 * AState.Zoom));
     Canvas.Brush.Style := bsClear;
-    Canvas.TextOut(R.Left + 8, R.Top + 5, Title);
+    if AState.ShowNodeTitle then
+      Canvas.TextOut(R.Left + 8, R.Top + 5, Title);
 
-    if CommentText <> '' then
+    if (CommentText <> '') and (AState.ShowNodeTitle) then
       Canvas.TextOut(R.Left + 8, HeaderR.Bottom + 6, CommentText);
 
     Canvas.Brush.Style := bsSolid;
@@ -873,42 +874,32 @@ begin
 
   HeaderR := Rect(R.Left, R.Top, R.Right, R.Top + HeaderH);
   Canvas.Brush.Color := HeaderColor;
-  Canvas.Pen.Style := psClear;
   Canvas.Rectangle(HeaderR);
+
+  if AState.ShowNodeTitle then
+  begin
+    Canvas.Font.Color := clBlack;
+    Canvas.Font.Size := Max(7, Min(14, Round(10 * AState.Zoom)));
+    Canvas.Brush.Style := bsClear;
+    Canvas.TextOut(R.Left + 8, R.Top + Max(4, Round(6 * AState.Zoom)), Title);
+  end;
 
   Canvas.Brush.Style := bsClear;
   Canvas.Pen.Style := psSolid;
-
   if Selected then
-  begin
-    Canvas.Pen.Color := clRed;
-    Canvas.Pen.Width := 3;
-  end
+    Canvas.Pen.Color := clRed
   else if Highlighted then
-  begin
-    Canvas.Pen.Color := clAqua;
-    Canvas.Pen.Width := 3;
-  end
+    Canvas.Pen.Color := clAqua
   else if Hovered then
-  begin
-    Canvas.Pen.Color := clBlue;
-    Canvas.Pen.Width := 1;
-  end
+    Canvas.Pen.Color := clBlue
   else
-  begin
     Canvas.Pen.Color := clBlack;
-    Canvas.Pen.Width := 1;
-  end;
 
+  Canvas.Pen.Width := IfThen(Selected or Highlighted, 3, 1);
   Canvas.Rectangle(R);
 
-  Canvas.Font.Color := BodyTextColor;
-  Canvas.Font.Size := Max(6, Round(10 * AState.Zoom));
-  Canvas.TextOut(R.Left + 8, R.Top + Max(4, Round(6 * AState.Zoom)), Title);
-
-  Canvas.Brush.Style := bsSolid;
   Canvas.Pen.Width := 1;
-  Canvas.Pen.Style := psSolid;
+  Canvas.Brush.Style := bsSolid;
 end;
 
 procedure TCustomNode.PaintPin(Canvas: TCanvas; APin: TNodePin;
@@ -1030,6 +1021,9 @@ begin
   if VisualKind = nvReroute then
     Exit;
 
+  if not AState.ShowPinLabels then
+    Exit;
+
   S := APin.EffectiveDisplayName;
   if S = '' then
     Exit;
@@ -1040,34 +1034,34 @@ begin
 
   case APin.Side of
     psLeft:
-      begin
-        TX := ACenter.X + ARadius + 6;
-        TY := ACenter.Y - Canvas.TextHeight(S) div 2;
-      end;
+    begin
+      TX := ACenter.X + ARadius + 6;
+      TY := ACenter.Y - Canvas.TextHeight(S) div 2;
+    end;
 
     psRight:
-      begin
-        TX := ACenter.X - Canvas.TextWidth(S) - ARadius - 6;
-        TY := ACenter.Y - Canvas.TextHeight(S) div 2;
-      end;
+    begin
+      TX := ACenter.X - Canvas.TextWidth(S) - ARadius - 6;
+      TY := ACenter.Y - Canvas.TextHeight(S) div 2;
+    end;
 
     psTop:
-      begin
-        TX := ACenter.X - Canvas.TextWidth(S) div 2;
-        TY := ACenter.Y + ARadius + 4;
-      end;
+    begin
+      TX := ACenter.X - Canvas.TextWidth(S) div 2;
+      TY := ACenter.Y + ARadius + 4;
+    end;
 
     psBottom:
-      begin
-        TX := ACenter.X - Canvas.TextWidth(S) div 2;
-        TY := ACenter.Y - Canvas.TextHeight(S) - ARadius - 4;
-      end;
+    begin
+      TX := ACenter.X - Canvas.TextWidth(S) div 2;
+      TY := ACenter.Y - Canvas.TextHeight(S) - ARadius - 4;
+    end;
 
     else
-      begin
-        TX := ACenter.X + ARadius + 6;
-        TY := ACenter.Y - Canvas.TextHeight(S) div 2;
-      end;
+    begin
+      TX := ACenter.X + ARadius + 6;
+      TY := ACenter.Y - Canvas.TextHeight(S) div 2;
+    end;
   end;
 
   Canvas.TextOut(TX, TY, S);
@@ -1113,10 +1107,8 @@ begin
       Continue;
 
     LocalPos := GetPinLocalPosition(P);
-    Center := Point(
-      ARect.Left + Round(LocalPos.X * AState.Zoom),
-      ARect.Top + Round(LocalPos.Y * AState.Zoom)
-    );
+    Center := Point(ARect.Left + Round(LocalPos.X * AState.Zoom),
+      ARect.Top + Round(LocalPos.Y * AState.Zoom));
 
     PaintSinglePin(Canvas, P, Center, Radius, AState);
     PaintPinLabel(Canvas, P, Center, Radius, AState);
@@ -1129,10 +1121,8 @@ begin
       Continue;
 
     LocalPos := GetPinLocalPosition(P);
-    Center := Point(
-      ARect.Left + Round(LocalPos.X * AState.Zoom),
-      ARect.Top + Round(LocalPos.Y * AState.Zoom)
-    );
+    Center := Point(ARect.Left + Round(LocalPos.X * AState.Zoom),
+      ARect.Top + Round(LocalPos.Y * AState.Zoom));
 
     PaintSinglePin(Canvas, P, Center, Radius, AState);
     PaintPinLabel(Canvas, P, Center, Radius, AState);
@@ -1476,9 +1466,10 @@ begin
   RegisterNodeEx(ANodeType, ACaption, '', '', '', AClass);
 end;
 
-procedure TNodeRegistry.RegisterNodeEx(const ANodeType, ACaption,
-  ACategory, ADescription, ATags: string; AClass: TCustomNodeClass;
-  AColor: TColor; AHidden: boolean; ADeprecated: boolean; AVersion: integer);
+procedure TNodeRegistry.RegisterNodeEx(
+  const ANodeType, ACaption, ACategory, ADescription, ATags: string;
+  AClass: TCustomNodeClass; AColor: TColor; AHidden: boolean;
+  ADeprecated: boolean; AVersion: integer);
 var
   It: TNodeDefinition;
   TagsSL: TStringList;
