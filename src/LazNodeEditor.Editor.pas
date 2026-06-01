@@ -62,6 +62,7 @@ type
     eaAlignBottom,
     eaAlignCenterH,
     eaAlignCenterV,
+    eaAutoLayoutSelected,
 
     eaDistributeH,
     eaDistributeV,
@@ -796,6 +797,7 @@ begin
       Ord('E'): Exit(eaSameHeight);
       Ord('S'): Exit(eaSameSize);
       Ord('F'): Exit(eaFrameSelected);
+      Ord('A'): Exit(eaAutoLayoutSelected);
     end;
 
   if Shift = [ssCtrl, ssAlt] then
@@ -887,6 +889,7 @@ begin
     eaAlignBottom: Controller.AlignSelectedNodes(amBottom);
     eaAlignCenterH: Controller.AlignSelectedNodes(amCenterHorizontal);
     eaAlignCenterV: Controller.AlignSelectedNodes(amCenterVertical);
+    eaAutoLayoutSelected: Controller.AutoLayoutSelected;
 
     eaDistributeH: Controller.DistributeSelectedNodes(dmHorizontal);
     eaDistributeV: Controller.DistributeSelectedNodes(dmVertical);

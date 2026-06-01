@@ -266,6 +266,33 @@ type
     procedure Undo; override;
   end;
 
+  { TFrameSelectedCommand }
+  TFrameSelectedCommand = class(TGraphCommand)
+  private
+    FCommentId: string;
+    FCommentJSON: string;
+    FSelectedNodeIds: TStringList;
+  public
+    constructor Create(AGraph: INodeGraphCommandHost; ASelectedNodes: TCustomNodeList); reintroduce;
+    destructor Destroy; override;
+
+    procedure DoExecute; override;
+    procedure Undo; override;
+  end;
+
+  { TAutoLayoutSelectedCommand }
+  TAutoLayoutSelectedCommand = class(TGraphCommand)
+  private
+    FNodeIds: TStringList;
+    FOldX, FOldY: array of single;
+    FNewX, FNewY: array of single;
+  public
+    constructor Create(AGraph: INodeGraphCommandHost; ANodes: TCustomNodeList); reintroduce;
+    destructor Destroy; override;
+    procedure DoExecute; override;
+    procedure Undo; override;
+  end;
+
 procedure LoadGraphFromJSONText(AGraph: INodeGraphCommandHost; const S: string);
 procedure ApplyNodePropertiesFromJSON(ANode: TCustomNode; AObj: TJSONObject);
 
@@ -1230,6 +1257,176 @@ begin
     end;
   end;
 
+  FGraph.GraphChanged;
+end;
+
+{ TFrameSelectedCommand }
+
+constructor TFrameSelectedCommand.Create(AGraph: INodeGraphCommandHost; ASelectedNodes: TCustomNodeList);
+var
+  i: integer;
+  N: TCustomNode;
+  MinX, MinY, MaxX, MaxY: single;
+  Comment: TCommentNode;
+  Obj: TJSONObject;
+begin
+  inherited Create(AGraph, 'Frame selected nodes');
+
+  FSelectedNodeIds := TStringList.Create;
+  FCommentId := NewId;
+
+  if (ASelectedNodes = nil) or (ASelectedNodes.Count = 0) then Exit;
+
+  MinX := MaxSingle; MinY := MaxSingle;
+  MaxX := -MaxSingle; MaxY := -MaxSingle;
+
+  for i := 0 to ASelectedNodes.Count - 1 do
+  begin
+    N := TCustomNode(ASelectedNodes[i]);
+    FSelectedNodeIds.Add(N.Id);
+
+    if N.X < MinX then MinX := N.X;
+    if N.Y < MinY then MinY := N.Y;
+    if N.X + N.Width > MaxX then MaxX := N.X + N.Width;
+    if N.Y + N.Height > MaxY then MaxY := N.Y + N.Height;
+  end;
+
+  Comment := TCommentNode.Create('Frame', MinX - 20, MinY - 40, Round(MaxX - MinX + 60), Round(MaxY - MinY + 80));
+  Comment.Id := FCommentId;
+  Comment.CommentText := 'Frame';
+
+  Obj := TJSONObject.Create;
+  Comment.SaveToJSON(Obj);
+  FCommentJSON := Obj.AsJSON;
+  Obj.Free;
+end;
+
+destructor TFrameSelectedCommand.Destroy;
+begin
+  FSelectedNodeIds.Free;
+  inherited Destroy;
+end;
+
+procedure TFrameSelectedCommand.DoExecute;
+var
+  Comment: TCustomNode;
+  Reg: TNodeRegistry;
+begin
+  if FGraph = nil then Exit;
+  Reg := FGraph.GetNodeRegistry();
+  Comment := Reg.CreateNode('comment', 0, 0);
+  Comment.Id := FCommentId;
+  Comment.LoadFromJSONText(FCommentJSON);
+
+  FGraph.AddNode(Comment);
+
+  FGraph.GraphChanged;
+end;
+
+procedure TFrameSelectedCommand.Undo;
+var
+  Comment: TCustomNode;
+begin
+  if FGraph = nil then Exit;
+
+  Comment := FGraph.FindNodeById(FCommentId);
+  if Comment <> nil then
+    FGraph.RemoveNode(Comment);
+
+  FGraph.GraphChanged;
+end;
+
+{ TAutoLayoutSelectedCommand }
+
+constructor TAutoLayoutSelectedCommand.Create(AGraph: INodeGraphCommandHost; ANodes: TCustomNodeList);
+var
+  i, Cols, Rows: integer;
+  N: TCustomNode;
+  BaseX, BaseY, SpacingX, SpacingY: single;
+  MaxWidth, MaxHeight: single;
+begin
+  inherited Create(AGraph, 'Auto layout selected');
+
+  FNodeIds := TStringList.Create;
+  if (ANodes = nil) or (ANodes.Count = 0) then Exit;
+
+  SetLength(FOldX, ANodes.Count);
+  SetLength(FOldY, ANodes.Count);
+  SetLength(FNewX, ANodes.Count);
+  SetLength(FNewY, ANodes.Count);
+
+  for i := 0 to ANodes.Count - 1 do
+  begin
+    N := TCustomNode(ANodes[i]);
+    FNodeIds.Add(N.Id);
+    FOldX[i] := N.X;
+    FOldY[i] := N.Y;
+  end;
+
+  Cols := Ceil(Sqrt(ANodes.Count));
+  Rows := (ANodes.Count + Cols - 1) div Cols;
+
+  BaseX := ANodes[0].X;
+  BaseY := ANodes[0].Y;
+  SpacingX := 40;
+  SpacingY := 40;
+
+  MaxWidth := 0;
+  MaxHeight := 0;
+  for i := 0 to ANodes.Count - 1 do
+  begin
+    N := TCustomNode(ANodes[i]);
+    if N.Width > MaxWidth then MaxWidth := N.Width;
+    if N.Height > MaxHeight then MaxHeight := N.Height;
+  end;
+
+  for i := 0 to ANodes.Count - 1 do
+  begin
+    N := TCustomNode(ANodes[i]);
+    FNewX[i] := BaseX + (i mod Cols) * (MaxWidth + SpacingX);
+    FNewY[i] := BaseY + (i div Cols) * (MaxHeight + SpacingY);
+  end;
+end;
+
+destructor TAutoLayoutSelectedCommand.Destroy;
+begin
+  FNodeIds.Free;
+  inherited Destroy;
+end;
+
+procedure TAutoLayoutSelectedCommand.DoExecute;
+var
+  i: integer;
+  N: TCustomNode;
+begin
+  if FGraph = nil then Exit;
+  for i := 0 to FNodeIds.Count - 1 do
+  begin
+    N := FGraph.FindNodeById(FNodeIds[i]);
+    if N <> nil then
+    begin
+      N.X := FNewX[i];
+      N.Y := FNewY[i];
+    end;
+  end;
+  FGraph.GraphChanged;
+end;
+
+procedure TAutoLayoutSelectedCommand.Undo;
+var
+  i: integer;
+  N: TCustomNode;
+begin
+  if FGraph = nil then Exit;
+  for i := 0 to FNodeIds.Count - 1 do
+  begin
+    N := FGraph.FindNodeById(FNodeIds[i]);
+    if N <> nil then
+    begin
+      N.X := FOldX[i];
+      N.Y := FOldY[i];
+    end;
+  end;
   FGraph.GraphChanged;
 end;
 

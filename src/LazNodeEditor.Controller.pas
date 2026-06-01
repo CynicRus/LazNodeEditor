@@ -45,7 +45,7 @@ type
     FSelection: TNodeSelectionModel;
     FPinSelection: TPinSelectionModel;
     FClipboard: TNodeClipboardService;
-    function GetSelectedNodes: TCustomNodeList;
+
   public
     constructor Create(AGraph: TNodeGraph);
     destructor Destroy; override;
@@ -64,6 +64,9 @@ type
     procedure CopySelectionToClipboard;
     procedure PasteFromClipboard(AX, AY: single);
     procedure DuplicateSelection(AX, AY: single);
+    procedure FrameSelected;
+
+    function GetSelectedNodes: TCustomNodeList;
 
     function SaveToJSONText(AZoom: double; AOffsetX, AOffsetY: double): string;
     procedure LoadFromJSONText(const S: string; out AZoom: double;
@@ -89,6 +92,7 @@ type
     procedure AlignSelectedNodes(Mode: TAlignMode);
     procedure DistributeSelectedNodes(Mode: TDistributeMode);
     procedure MakeSelectedNodesSameSize(Mode: TMatchSizeMode);
+    procedure AutoLayoutSelected;
 
     property Graph: TNodeGraph read FGraph;
     property Selection: TNodeSelectionModel read FSelection;
@@ -517,6 +521,21 @@ begin
   end;
 end;
 
+procedure TNodeEditorController.AutoLayoutSelected;
+var
+  Nodes: TCustomNodeList;
+begin
+  if (FGraph = nil) or (FSelection = nil) or (FSelection.NodeCount < 2) then
+    Exit;
+
+  Nodes := GetSelectedNodes;
+  try
+    FGraph.ExecuteCommand(TAutoLayoutSelectedCommand.Create(FGraph, Nodes));
+  finally
+    Nodes.Free;
+  end;
+end;
+
 procedure TNodeEditorController.DeleteSelection;
 var
   i: integer;
@@ -601,6 +620,21 @@ begin
   AfterJSON := FGraph.CaptureJSONText;
 
   FGraph.ExecuteJSONSnapshotCommand(BeforeJSON, AfterJSON, 'Duplicate selection');
+end;
+
+procedure TNodeEditorController.FrameSelected;
+var
+  Nodes: TCustomNodeList;
+begin
+  if (FGraph = nil) or (FSelection = nil) or (FSelection.NodeCount = 0) then
+    Exit;
+
+  Nodes := GetSelectedNodes;
+  try
+    FGraph.ExecuteCommand(TFrameSelectedCommand.Create(FGraph, Nodes));
+  finally
+    Nodes.Free;
+  end;
 end;
 
 function TNodeEditorController.GetSelectedNodes: TCustomNodeList;

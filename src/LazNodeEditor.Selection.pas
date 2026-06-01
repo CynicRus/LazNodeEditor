@@ -52,6 +52,7 @@ type
 
     procedure Clear;
     procedure SelectNode(ANode: TCustomNode; AAppend: boolean);
+    procedure ToggleNode(ANode: TCustomNode);
     procedure SelectLink(ALink: TNodeLink; AAppend: boolean = False);
     procedure ToggleLink(ALink: TNodeLink);
     procedure AddLinkToSelection(ALink: TNodeLink);
@@ -155,6 +156,16 @@ begin
     FNodes.Add(ANode);
 
   NotifyChanged;
+end;
+
+procedure TNodeSelectionModel.ToggleNode(ANode: TCustomNode);
+begin
+  if ANode = nil then Exit;
+
+  if FNodes.IndexOf(ANode) >= 0 then
+    RemoveNode(ANode)
+  else
+    AddNodeToSelection(ANode);
 end;
 
 procedure TNodeSelectionModel.AddNodeToSelection(ANode: TCustomNode);
