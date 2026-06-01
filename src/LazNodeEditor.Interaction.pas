@@ -71,6 +71,12 @@ type
   end;
 
   TNodeDragState = class(TEditorInteractionState)
+  private
+    FOldPositions: array of TPointF;
+    FDraggedComment: TCustomNode;
+    FCommentChildren: TCustomNodeList;
+    FCommentChildrenOldPositions: array of TPointF;
+    FDraggedCommentIndex: integer;
   public
     procedure Enter; override;
     procedure MouseMove(Shift: TShiftState; X, Y: integer); override;
@@ -506,8 +512,57 @@ begin
 end;
 
 procedure TNodeDragState.Enter;
+var
+  i: integer;
+  N: TCustomNode;
 begin
   inherited;
+  FDraggedComment := nil;
+  FCommentChildren := nil;
+  SetLength(FCommentChildrenOldPositions, 0);
+
+  if Controller.Selection.NodeCount = 0 then Exit;
+
+  FDraggedCommentIndex := -1;
+  for i := 0 to Controller.Selection.NodeCount - 1 do
+  begin
+    N := Controller.Selection.GetNode(i);
+    if N.VisualKind = nvComment then
+    begin
+      FDraggedComment := N;
+      FDraggedCommentIndex := i;
+      Break;
+    end;
+  end;
+
+  SetLength(FOldPositions, Controller.Selection.NodeCount);
+  for i := 0 to Controller.Selection.NodeCount - 1 do
+  begin
+    N := Controller.Selection.GetNode(i);
+    FOldPositions[i] := PointF(N.X, N.Y);
+  end;
+
+  if FDraggedComment <> nil then
+  begin
+    FCommentChildren := TCustomNodeList.Create(False);
+    for i := 0 to Graph.Nodes.Count - 1 do
+    begin
+      N := Graph.Nodes[i];
+      if (N <> FDraggedComment) and (N.X >= FDraggedComment.X) and
+        (N.Y >= FDraggedComment.Y) and (N.X + N.Width <=
+        FDraggedComment.X + FDraggedComment.Width) and
+        (N.Y + N.Height <= FDraggedComment.Y + FDraggedComment.Height) then
+        FCommentChildren.Add(N);
+    end;
+
+    SetLength(FCommentChildrenOldPositions, FCommentChildren.Count);
+    for i := 0 to FCommentChildren.Count - 1 do
+    begin
+      N := FCommentChildren[i];
+      FCommentChildrenOldPositions[i] := PointF(N.X, N.Y);
+    end;
+  end;
+
   Editor.RequestRepaint(True);
 end;
 
@@ -515,39 +570,36 @@ procedure TNodeDragState.MouseMove(Shift: TShiftState; X, Y: integer);
 var
   i: integer;
   N: TCustomNode;
-  RawDx, RawDy: single;
   Dx, Dy: single;
-  BaseX, BaseY: single;
-  SnappedX, SnappedY: boolean;
 begin
-  if Controller.Selection.NodeCount <= 0 then Exit;
+  if Controller.Selection.NodeCount = 0 then Exit;
 
-  RawDx := (X - FMachine.StartMouseX) / Viewport.Zoom;
-  RawDy := (Y - FMachine.StartMouseY) / Viewport.Zoom;
-  Dx := RawDx;
-  Dy := RawDy;
+  Dx := (X - FMachine.StartMouseX) / Viewport.Zoom;
+  Dy := (Y - FMachine.StartMouseY) / Viewport.Zoom;
 
-  Editor.ApplyNodeSnap(Dx, Dy, SnappedX, SnappedY);
-
-  if Editor.GetSnapToGrid() and not (ssAlt in Shift) and
-    (FMachine.DragCommandNodes.Count > 0) then
+  if FDraggedComment <> nil then
   begin
-    BaseX := FMachine.FDragOldPositions[0].X;
-    BaseY := FMachine.FDragOldPositions[0].Y;
-    if not SnappedX then
-      Dx := Editor.SnapWorldValue(BaseX + RawDx) - BaseX;
-    if not SnappedY then
-      Dy := Editor.SnapWorldValue(BaseY + RawDy) - BaseY;
+    FDraggedComment.X := FOldPositions[FDraggedCommentIndex].X + Dx;
+    FDraggedComment.Y := FOldPositions[FDraggedCommentIndex].Y + Dy;
+
+    if FCommentChildren <> nil then
+      for i := 0 to FCommentChildren.Count - 1 do
+      begin
+        N := FCommentChildren[i];
+        N.X := FCommentChildrenOldPositions[i].X + Dx;
+        N.Y := FCommentChildrenOldPositions[i].Y + Dy;
+      end;
   end
-  else if not Editor.GetSnapToNodes() then
-    Editor.ClearSnapGuides;
-
-  for i := 0 to FMachine.DragCommandNodes.Count - 1 do
+  else
   begin
-    N := TCustomNode(FMachine.DragCommandNodes[i]);
-    N.X := FMachine.FDragOldPositions[i].X + Dx;
-    N.Y := FMachine.FDragOldPositions[i].Y + Dy;
+    for i := 0 to Controller.Selection.NodeCount - 1 do
+    begin
+      N := Controller.Selection.GetNode(i);
+      N.X := FOldPositions[i].X + Dx;
+      N.Y := FOldPositions[i].Y + Dy;
+    end;
   end;
+
   Editor.RequestRepaint(True);
 end;
 
@@ -555,69 +607,74 @@ procedure TNodeDragState.MouseUp(Button: TMouseButton; Shift: TShiftState;
   X, Y: integer);
 var
   NewPositions: array of TPointF;
+  i: integer;
   Moved: boolean;
-  K: integer;
-  DN: TCustomNode;
+  N: TCustomNode;
 begin
   if Button <> mbLeft then Exit;
 
-  SetLength(NewPositions, FMachine.DragCommandNodes.Count);
+  SetLength(NewPositions, Controller.Selection.NodeCount);
   Moved := False;
-  for K := 0 to FMachine.DragCommandNodes.Count - 1 do
+
+  for i := 0 to Controller.Selection.NodeCount - 1 do
   begin
-    DN := TCustomNode(FMachine.DragCommandNodes[K]);
-    NewPositions[K] := PointF(DN.X, DN.Y);
-    if (Abs(NewPositions[K].X - FMachine.FDragOldPositions[K].X) > 0.01) or
-      (Abs(NewPositions[K].Y - FMachine.FDragOldPositions[K].Y) > 0.01) then
+    N := Controller.Selection.GetNode(i);
+    NewPositions[i] := PointF(N.X, N.Y);
+    if (Abs(NewPositions[i].X - FOldPositions[i].X) > 0.01) or
+      (Abs(NewPositions[i].Y - FOldPositions[i].Y) > 0.01) then
       Moved := True;
   end;
 
   if Moved then
   begin
-    for K := 0 to FMachine.DragCommandNodes.Count - 1 do
+    for i := 0 to Controller.Selection.NodeCount - 1 do
     begin
-      DN := TCustomNode(FMachine.DragCommandNodes[K]);
-      DN.X := FMachine.FDragOldPositions[K].X;
-      DN.Y := FMachine.FDragOldPositions[K].Y;
+      N := Controller.Selection.GetNode(i);
+      N.X := FOldPositions[i].X;
+      N.Y := FOldPositions[i].Y;
     end;
+
     Graph.ExecuteCommand(TMoveNodesCommand.Create(Graph,
-      FMachine.DragCommandNodes, FMachine.FDragOldPositions, NewPositions));
-    for K := 0 to FMachine.DragCommandNodes.Count - 1 do
-    begin
-      DN := TCustomNode(FMachine.DragCommandNodes[K]);
-      Editor.DoNodeChanged(DN);
-    end;
+      Controller.GetSelectedNodes, FOldPositions, NewPositions));
   end;
 
+  FDraggedComment := nil;
+  FreeAndNil(FCommentChildren);
+  SetLength(FOldPositions, 0);
   FMachine.ShowDragCoordinates := False;
-  FMachine.DragCommandNodes.Clear;
-  SetLength(FMachine.FDragOldPositions, 0);
-  Editor.ClearSnapGuides;
   FMachine.ChangeState(TIdleState.Create(FMachine));
-  System.Exit;
 end;
 
 procedure TNodeDragState.Cancel;
 var
-  K: integer;
-  DN: TCustomNode;
+  i: integer;
+  N: TCustomNode;
 begin
-  for K := 0 to FMachine.DragCommandNodes.Count - 1 do
+  for i := 0 to Controller.Selection.NodeCount - 1 do
   begin
-    DN := TCustomNode(FMachine.DragCommandNodes[K]);
-    DN.X := FMachine.FDragOldPositions[K].X;
-    DN.Y := FMachine.FDragOldPositions[K].Y;
+    N := Controller.Selection.GetNode(i);
+    N.X := FOldPositions[i].X;
+    N.Y := FOldPositions[i].Y;
   end;
-  FMachine.ShowDragCoordinates := False;
-  FMachine.DragCommandNodes.Clear;
-  SetLength(FMachine.FDragOldPositions, 0);
-  Editor.ClearSnapGuides;
+
+  if FCommentChildren <> nil then
+    for i := 0 to FCommentChildren.Count - 1 do
+    begin
+      N := FCommentChildren[i];
+      N.X := FCommentChildrenOldPositions[i].X;
+      N.Y := FCommentChildrenOldPositions[i].Y;
+    end;
+
+  FDraggedComment := nil;
+  FreeAndNil(FCommentChildren);
+  SetLength(FOldPositions, 0);
+  SetLength(FCommentChildrenOldPositions, 0);
   Editor.Invalidate;
 end;
 
 function TNodeDragState.GetName: string;
 begin
-  Result := 'NodeDrag';
+  Result := specialize IfThen<string>(FDraggedComment <> nil, 'CommentDrag', 'NodeDrag');
 end;
 
 procedure TLinkDrawState.Enter;
@@ -787,7 +844,7 @@ begin
   TargetPin := Editor.HitTestPinAt(X, Y, TargetNode);
 
   if (TargetPin <> nil) and (FMachine.ReconnectLink <> nil) and
-     (FMachine.ReconnectFixedPin <> nil) then
+    (FMachine.ReconnectFixedPin <> nil) then
   begin
     // Определяем, какой пин был старым на реконнекте
     if FMachine.ReconnectMovingFromSide then
@@ -798,8 +855,8 @@ begin
     if FMachine.ReconnectMovingFromSide then
     begin
       if Editor.CanPinAcceptMoreConnections(TargetPin) and
-         Editor.CanPinAcceptMoreConnections(FMachine.ReconnectFixedPin) and
-         Graph.CanConnect(TargetPin, FMachine.ReconnectFixedPin) then
+        Editor.CanPinAcceptMoreConnections(FMachine.ReconnectFixedPin) and
+        Graph.CanConnect(TargetPin, FMachine.ReconnectFixedPin) then
       begin
         AllowConnect := Editor.BeforeConnectPins(TargetPin, FMachine.ReconnectFixedPin);
         if AllowConnect then
@@ -815,8 +872,8 @@ begin
     else
     begin
       if Editor.CanPinAcceptMoreConnections(FMachine.ReconnectFixedPin) and
-         Editor.CanPinAcceptMoreConnections(TargetPin) and
-         Graph.CanConnect(FMachine.ReconnectFixedPin, TargetPin) then
+        Editor.CanPinAcceptMoreConnections(TargetPin) and
+        Graph.CanConnect(FMachine.ReconnectFixedPin, TargetPin) then
       begin
         AllowConnect := Editor.BeforeConnectPins(FMachine.ReconnectFixedPin, TargetPin);
         if AllowConnect then
