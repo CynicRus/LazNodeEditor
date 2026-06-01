@@ -42,6 +42,34 @@ uses
   GL2DCanvas, LazNodeEditor.GLCanvasProxy;
 
 type
+  TEditorAction = (
+    eaNone,
+    eaDeleteSelection,
+    eaUndo,
+    eaRedo,
+    eaCopy,
+    eaPaste,
+    eaDuplicate,
+    eaFrame,
+    eaConnectPins,
+    eaSelectAll,
+    eaSelectAllLinks,
+
+    eaAlignLeft,
+    eaAlignRight,
+    eaAlignTop,
+    eaAlignBottom,
+    eaAlignCenterH,
+    eaAlignCenterV,
+
+    eaDistributeH,
+    eaDistributeV,
+
+    eaSameWidth,
+    eaSameHeight,
+    eaSameSize
+  );
+
   TNodeSelectionChangedEvent = procedure(Sender: TObject) of object;
   TNodeChangedEvent = procedure(Sender: TObject; ANode: TCustomNode) of object;
   TNodePinEvent = procedure(Sender: TObject; APin: TNodePin) of object;
@@ -165,7 +193,8 @@ type
     procedure DoExit; override;
     procedure MouseLeave; override;
     procedure Resize; override;
-
+    function ResolveShortcut(Key: Word; Shift: TShiftState): TEditorAction; virtual;
+    function ExecuteEditorAction(AAction: TEditorAction): Boolean; virtual;
     procedure SelectNodeInternal(ANode: TCustomNode; AAppend: boolean);
     procedure SelectLinkInternal(ALink: TNodeLink; AKeepNodes: boolean = False);
     procedure ClearSelectionInternal;
@@ -735,6 +764,132 @@ begin
   inherited Resize;
   if Assigned(FGLControl) then
     FGLControl.Invalidate;
+end;
+
+function TLazNodeEditor.ResolveShortcut(Key: Word; Shift: TShiftState): TEditorAction;
+begin
+  Result := eaNone;
+
+  if Key = VK_DELETE then Exit(eaDeleteSelection);
+  if Key = VK_ESCAPE then Exit(eaNone);
+
+  if (Key = Ord('Z')) and (Shift = [ssCtrl]) then Exit(eaUndo);
+  if (Key = Ord('Y')) and (Shift = [ssCtrl]) then Exit(eaRedo);
+  if (Key = Ord('C')) and (Shift = [ssCtrl]) then Exit(eaCopy);
+  if (Key = Ord('V')) and (Shift = [ssCtrl]) then Exit(eaPaste);
+  if (Key = Ord('D')) and (Shift = [ssCtrl]) then Exit(eaDuplicate);
+  if (Key = Ord('L')) and (Shift = [ssCtrl]) then Exit(eaConnectPins);
+  if (Key = Ord('A')) and (Shift = [ssCtrl]) then Exit(eaSelectAll);
+  if (Key = Ord('A')) and (Shift = [ssShift]) then Exit(eaSelectAllLinks);
+
+  if Key = Ord('F') then Exit(eaFrame);
+
+  if Shift = [ssCtrl, ssShift] then
+    case Key of
+      Ord('L'): Exit(eaAlignLeft);
+      Ord('R'): Exit(eaAlignRight);
+      Ord('T'): Exit(eaAlignTop);
+      Ord('B'): Exit(eaAlignBottom);
+      Ord('H'): Exit(eaAlignCenterH);
+      Ord('V'): Exit(eaAlignCenterV);
+      Ord('W'): Exit(eaSameWidth);
+      Ord('E'): Exit(eaSameHeight);
+      Ord('S'): Exit(eaSameSize);
+    end;
+
+  if Shift = [ssCtrl, ssAlt] then
+    case Key of
+      Ord('H'): Exit(eaDistributeH);
+      Ord('V'): Exit(eaDistributeV);
+    end;
+end;
+
+function TLazNodeEditor.ExecuteEditorAction(AAction: TEditorAction): Boolean;
+var
+  i: Integer;
+begin
+  Result := True;
+
+  case AAction of
+    eaDeleteSelection:
+      DeleteSelection;
+
+    eaUndo:
+      Undo;
+
+    eaRedo:
+      Redo;
+
+    eaCopy:
+      CopySelectionToClipboard;
+
+    eaPaste:
+      begin
+        FContextWorldPos := FViewport.ScreenToWorld(ClientWidth div 2, ClientHeight div 2);
+        PasteFromClipboard;
+      end;
+
+    eaDuplicate:
+      DuplicateSelection;
+
+    eaFrame:
+      begin
+        if FController.Selection.NodeCount > 0 then
+          FitToSelection
+        else
+          FrameAll;
+      end;
+
+    eaConnectPins:
+      ConnectSelectedPins;
+
+    eaSelectAll:
+      begin
+        ClearSelectionInternal;
+        FController.Selection.BeginUpdate;
+        try
+          for i := 0 to FGraph.Nodes.Count - 1 do
+            FController.Selection.AddNodeToSelection(TCustomNode(FGraph.Nodes[i]));
+          for i := 0 to FGraph.Links.Count - 1 do
+            FController.Selection.AddLinkToSelection(TNodeLink(FGraph.Links[i]));
+        finally
+          FController.Selection.EndUpdate;
+        end;
+        NotifySelectionChanged;
+        Invalidate;
+      end;
+
+    eaSelectAllLinks:
+      begin
+        ClearSelectionInternal;
+        FController.Selection.BeginUpdate;
+        try
+          for i := 0 to FGraph.Links.Count - 1 do
+            FController.Selection.AddLinkToSelection(TNodeLink(FGraph.Links[i]));
+        finally
+          FController.Selection.EndUpdate;
+        end;
+        NotifySelectionChanged;
+        Invalidate;
+      end;
+
+    eaAlignLeft:      Controller.AlignSelectedNodes(amLeft);
+    eaAlignRight:     Controller.AlignSelectedNodes(amRight);
+    eaAlignTop:       Controller.AlignSelectedNodes(amTop);
+    eaAlignBottom:    Controller.AlignSelectedNodes(amBottom);
+    eaAlignCenterH:   Controller.AlignSelectedNodes(amCenterHorizontal);
+    eaAlignCenterV:   Controller.AlignSelectedNodes(amCenterVertical);
+
+    eaDistributeH:    Controller.DistributeSelectedNodes(dmHorizontal);
+    eaDistributeV:    Controller.DistributeSelectedNodes(dmVertical);
+
+    eaSameWidth:      Controller.MakeSelectedNodesSameSize(msmWidth);
+    eaSameHeight:     Controller.MakeSelectedNodesSameSize(msmHeight);
+    eaSameSize:       Controller.MakeSelectedNodesSameSize(msmBoth);
+
+    else
+      Result := False;
+  end;
 end;
 
 procedure TLazNodeEditor.InvalidateSortedNodes;
@@ -1535,106 +1690,20 @@ end;
 
 procedure TLazNodeEditor.KeyDown(var Key: word; Shift: TShiftState);
 var
-  i: integer;
+  AAction: TEditorAction;
 begin
   inherited KeyDown(Key, Shift);
 
+  AAction := ResolveShortcut(Key, Shift);
+  if ExecuteEditorAction(AAction) then
+  begin
+    Key := 0;
+    Exit;
+  end;
+
   FInteraction.KeyDown(Key, Shift);
-  if Key = 0 then Exit;
-
-  if Key = VK_DELETE then
-  begin
-    DeleteSelection;
-    Key := 0;
+  if Key = 0 then
     Exit;
-  end;
-
-  if (Key = Ord('Z')) and (ssCtrl in Shift) then
-  begin
-    Undo;
-    Key := 0;
-    Exit;
-  end;
-
-  if (Key = Ord('Y')) and (ssCtrl in Shift) then
-  begin
-    Redo;
-    Key := 0;
-    Exit;
-  end;
-
-  if (Key = Ord('C')) and (ssCtrl in Shift) then
-  begin
-    CopySelectionToClipboard;
-    Key := 0;
-    Exit;
-  end;
-
-  if (Key = Ord('V')) and (ssCtrl in Shift) then
-  begin
-    FContextWorldPos := FViewport.ScreenToWorld(ClientWidth div 2, ClientHeight div 2);
-    PasteFromClipboard;
-    Key := 0;
-    Exit;
-  end;
-
-  if (Key = Ord('D')) and (ssCtrl in Shift) then
-  begin
-    DuplicateSelection;
-    Key := 0;
-    Exit;
-  end;
-
-  if Key = Ord('F') then
-  begin
-    if FController.Selection.NodeCount > 0 then
-      FitToSelection
-    else
-      FrameAll;
-    Key := 0;
-    Exit;
-  end;
-
-  if (Key = Ord('L')) and (ssCtrl in Shift) then
-  begin
-    ConnectSelectedPins;
-    Key := 0;
-    Exit;
-  end;
-
-  if (Key = Ord('A')) and (ssCtrl in Shift) then
-  begin
-    ClearSelectionInternal;
-    FController.Selection.BeginUpdate;
-    try
-      for i := 0 to FGraph.Nodes.Count - 1 do
-        FController.Selection.AddNodeToSelection(TCustomNode(FGraph.Nodes[i]));
-      for i := 0 to FGraph.Links.Count - 1 do
-        FController.Selection.AddLinkToSelection(TNodeLink(FGraph.Links[i]));
-    finally
-      FController.Selection.EndUpdate;
-    end;
-    NotifySelectionChanged;
-    Invalidate;
-    Key := 0;
-    Exit;
-  end;
-
-  if (Key = Ord('A')) and (ssShift in Shift) then
-  begin
-    ClearSelectionInternal;
-    FController.Selection.BeginUpdate;
-    try
-      for i := 0 to FGraph.Links.Count - 1 do
-        FController.Selection.AddLinkToSelection(TNodeLink(FGraph.Links[i]));
-    finally
-      FController.Selection.EndUpdate;
-    end;
-    NotifySelectionChanged;
-    Invalidate;
-    Key := 0;
-    Exit;
-  end;
 
   if Key = VK_ESCAPE then
   begin
