@@ -26,12 +26,13 @@ unit LazNodeEditor.Nodes;
 interface
 
 uses
-  Classes, SysUtils, Graphics, Controls, Types, fpjson, LazUTF8, Math,
+  Generics.Collections, Classes, SysUtils, Graphics, Controls, Types, fpjson, LazUTF8, Math,
   LazNodeEditor.Types;
 
 type
   TCustomNode = class;
   TCustomNodeClass = class of TCustomNode;
+  TCustomNodeList = specialize TObjectList<TCustomNode>;
 
   TPinSelectionAccess = class
   public

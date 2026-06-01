@@ -31,6 +31,7 @@ uses
   LazNodeEditor.Types,
   LazNodeEditor.Nodes,
   LazNodeEditor.Graph,
+  LazNodeEditor.GraphCommands,
   LazNodeEditor.Selection,
   LazNodeEditor.ClipboardService;
 

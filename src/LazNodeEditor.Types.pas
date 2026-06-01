@@ -26,7 +26,7 @@ unit LazNodeEditor.Types;
 interface
 
 uses
-  Classes, SysUtils, Graphics, Types, Math, fpjson, jsonparser;
+  Generics.Collections, Classes, SysUtils, Graphics, Types, Math, fpjson, jsonparser;
 
 type
   TNodeLink = class;
@@ -76,6 +76,7 @@ type
   TGraphChangedEvent = procedure(Sender: TObject) of object;
   TEditorZoomChangedEvent = procedure(Sender: TObject) of object;
   TIsLinkSelectedFunc = function(ALink: TNodeLink): boolean of object;
+  TNodeLinkList = specialize TObjectList<TNodeLink>;
 
   TNodeRenderState = record
     Zoom: double;
@@ -100,6 +101,15 @@ type
     ShowPinLabels: boolean;
 
     IsLinkSelected: TIsLinkSelectedFunc;
+  end;
+
+  { TNoRefCountObject }
+
+  TNoRefCountObject = class(TObject, IInterface)
+  protected
+    function QueryInterface(constref IID: TGUID; out Obj): HResult; {$IFDEF MSWINDOWS}stdcall;{$ELSE}cdecl;{$ENDIF}
+    function _AddRef: LongInt; {$IFDEF MSWINDOWS}stdcall;{$ELSE}cdecl;{$ENDIF}
+    function _Release: LongInt; {$IFDEF MSWINDOWS}stdcall;{$ELSE}cdecl;{$ENDIF}
   end;
 
   { TNodePinType }
@@ -345,6 +355,24 @@ begin
     psTop: Result := PointF(0, -1);
     psBottom: Result := PointF(0, 1);
   end;
+end;
+
+function TNoRefCountObject.QueryInterface(constref IID: TGUID; out Obj): HResult; {$IFDEF MSWINDOWS}stdcall;{$ELSE}cdecl;{$ENDIF}
+begin
+  if GetInterface(IID, Obj) then
+    Result := 0
+  else
+    Result := LongInt($80004002);
+end;
+
+function TNoRefCountObject._AddRef: LongInt; {$IFDEF MSWINDOWS}stdcall;{$ELSE}cdecl;{$ENDIF}
+begin
+  Result := -1;
+end;
+
+function TNoRefCountObject._Release: LongInt; {$IFDEF MSWINDOWS}stdcall;{$ELSE}cdecl;{$ENDIF}
+begin
+  Result := -1;
 end;
 
 constructor TNodePinType.Create(const ATypeId: string; const ACategory: string;

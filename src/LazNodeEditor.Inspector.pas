@@ -32,6 +32,7 @@ uses
   LazNodeEditor.Types,
   LazNodeEditor.Nodes,
   LazNodeEditor.Graph,
+  LazNodeEditor.GraphCommands,
   LazNodeEditor.Editor,
   LazNodeEditor.Controller;
 

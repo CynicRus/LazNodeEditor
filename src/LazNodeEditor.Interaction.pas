@@ -30,6 +30,7 @@ uses
   LazNodeEditor.Types,
   LazNodeEditor.Nodes,
   LazNodeEditor.Graph,
+  LazNodeEditor.GraphCommands,
   LazNodeEditor.Controller,
   LazNodeEditor.Viewport,
   LazNodeEditor.InteractionIntf;
