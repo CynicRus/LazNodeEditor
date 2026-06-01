@@ -34,7 +34,6 @@ uses
 
 type
 
-
   { TGraphCommand }
 
   TGraphCommand = class
@@ -53,7 +52,6 @@ type
   end;
 
   TGraphCommandList = specialize TObjectList<TGraphCommand>;
-
 
   { TJSONSnapshotCommand }
 
@@ -161,6 +159,26 @@ type
     procedure Undo; override;
   end;
 
+  { TResizeNodesCommand — Group resize }
+
+  TResizeNodesCommand = class(TGraphCommand)
+  private
+    FNodeIds: TStringList;
+    FOldWidths: array of integer;
+    FOldHeights: array of integer;
+    FNewWidths: array of integer;
+    FNewHeights: array of integer;
+  public
+    constructor Create(AGraph: INodeGraphCommandHost; ANodes: TCustomNodeList;
+      const AOldW, AOldH, ANewW, ANewH: array of integer); reintroduce;
+    destructor Destroy; override;
+
+    procedure DoExecute; override;
+    procedure Undo; override;
+  end;
+
+  { TReconnectLinkCommand }
+
   TReconnectLinkCommand = class(TGraphCommand)
   private
     FOldPinId: string;
@@ -190,10 +208,102 @@ type
     procedure Undo; override;
   end;
 
+  TAlignMode = (amLeft, amRight, amTop, amBottom, amCenterHorizontal, amCenterVertical);
+  TDistributeMode = (dmHorizontal, dmVertical);
+  TMatchSizeMode = (msmWidth, msmHeight, msmBoth);
+
+  { TAlignNodesCommand }
+
+  TAlignNodesCommand = class(TGraphCommand)
+  private
+    FNodeIds: TStringList;
+    FOldX: array of single;
+    FOldY: array of single;
+    FNewX: array of single;
+    FNewY: array of single;
+  public
+    constructor Create(AGraph: INodeGraphCommandHost; ANodes: TCustomNodeList;
+      Mode: TAlignMode); reintroduce;
+    destructor Destroy; override;
+
+    procedure DoExecute; override;
+    procedure Undo; override;
+  end;
+
+  { TDistributeNodesCommand }
+
+  TDistributeNodesCommand = class(TGraphCommand)
+  private
+    FNodeIds: TStringList;
+    FOldX: array of single;
+    FOldY: array of single;
+    FNewX: array of single;
+    FNewY: array of single;
+  public
+    constructor Create(AGraph: INodeGraphCommandHost; ANodes: TCustomNodeList;
+      Mode: TDistributeMode); reintroduce;
+    destructor Destroy; override;
+
+    procedure DoExecute; override;
+    procedure Undo; override;
+  end;
+
+  { TMakeSameSizeCommand }
+
+  TMakeSameSizeCommand = class(TGraphCommand)
+  private
+    FNodeIds: TStringList;
+    FOldWidths: array of integer;
+    FOldHeights: array of integer;
+    FNewWidths: array of integer;
+    FNewHeights: array of integer;
+  public
+    constructor Create(AGraph: INodeGraphCommandHost; ANodes: TCustomNodeList;
+      Mode: TMatchSizeMode); reintroduce;
+    destructor Destroy; override;
+
+    procedure DoExecute; override;
+    procedure Undo; override;
+  end;
+
 procedure LoadGraphFromJSONText(AGraph: INodeGraphCommandHost; const S: string);
 procedure ApplyNodePropertiesFromJSON(ANode: TCustomNode; AObj: TJSONObject);
 
 implementation
+
+function CompareNodeByX(A, B: Pointer): integer;
+begin
+  if A = B then
+    Exit(0);
+  if A = nil then
+    Exit(-1);
+  if B = nil then
+    Exit(1);
+
+  if TCustomNode(A).X < TCustomNode(B).X then
+    Result := -1
+  else if TCustomNode(A).X > TCustomNode(B).X then
+    Result := 1
+  else
+    Result := 0;
+end;
+
+function CompareNodeByY(A, B: Pointer): integer;
+begin
+  if A = B then
+    Exit(0);
+  if A = nil then
+    Exit(-1);
+  if B = nil then
+    Exit(1);
+
+  if TCustomNode(A).Y < TCustomNode(B).Y then
+    Result := -1
+  else if TCustomNode(A).Y > TCustomNode(B).Y then
+    Result := 1
+  else
+    Result := 0;
+end;
 
 procedure LoadGraphFromJSONText(AGraph: INodeGraphCommandHost; const S: string);
 begin
@@ -466,8 +576,7 @@ begin
 end;
 
 constructor TMoveNodesCommand.Create(AGraph: INodeGraphCommandHost;
-  ANodes: TCustomNodeList; const AOldPositions, ANewPositions: array of TPointF
-  );
+  ANodes: TCustomNodeList; const AOldPositions, ANewPositions: array of TPointF);
 var
   i, C: integer;
   N: TCustomNode;
@@ -590,8 +699,84 @@ begin
   FGraph.GraphChanged;
 end;
 
-constructor TReconnectLinkCommand.Create(AGraph: INodeGraphCommandHost; ALink: TNodeLink;
-  AOldPin, ANewPin: TNodePin);
+constructor TResizeNodesCommand.Create(AGraph: INodeGraphCommandHost;
+  ANodes: TCustomNodeList; const AOldW, AOldH, ANewW, ANewH: array of integer);
+var
+  i: integer;
+  N: TCustomNode;
+begin
+  inherited Create(AGraph, 'Resize nodes');
+
+  FNodeIds := TStringList.Create;
+  if ANodes = nil then
+    Exit;
+
+  SetLength(FOldWidths, ANodes.Count);
+  SetLength(FOldHeights, ANodes.Count);
+  SetLength(FNewWidths, ANodes.Count);
+  SetLength(FNewHeights, ANodes.Count);
+
+  for i := 0 to ANodes.Count - 1 do
+  begin
+    N := TCustomNode(ANodes[i]);
+    FNodeIds.Add(N.Id);
+    FOldWidths[i] := AOldW[i];
+    FOldHeights[i] := AOldH[i];
+    FNewWidths[i] := ANewW[i];
+    FNewHeights[i] := ANewH[i];
+  end;
+end;
+
+destructor TResizeNodesCommand.Destroy;
+begin
+  FNodeIds.Free;
+  inherited Destroy;
+end;
+
+procedure TResizeNodesCommand.DoExecute;
+var
+  i: integer;
+  N: TCustomNode;
+begin
+  if FGraph = nil then
+    Exit;
+
+  for i := 0 to FNodeIds.Count - 1 do
+  begin
+    N := FGraph.FindNodeById(FNodeIds[i]);
+    if N <> nil then
+    begin
+      N.Width := FNewWidths[i];
+      N.Height := FNewHeights[i];
+    end;
+  end;
+
+  FGraph.GraphChanged;
+end;
+
+procedure TResizeNodesCommand.Undo;
+var
+  i: integer;
+  N: TCustomNode;
+begin
+  if FGraph = nil then
+    Exit;
+
+  for i := 0 to FNodeIds.Count - 1 do
+  begin
+    N := FGraph.FindNodeById(FNodeIds[i]);
+    if N <> nil then
+    begin
+      N.Width := FOldWidths[i];
+      N.Height := FOldHeights[i];
+    end;
+  end;
+
+  FGraph.GraphChanged;
+end;
+
+constructor TReconnectLinkCommand.Create(AGraph: INodeGraphCommandHost;
+  ALink: TNodeLink; AOldPin, ANewPin: TNodePin);
 begin
   inherited Create(AGraph, 'Reconnect link');
 
@@ -705,6 +890,344 @@ begin
       ApplyNodePropertiesFromJSON(N, TJSONObject(Data));
   finally
     Data.Free;
+  end;
+
+  FGraph.GraphChanged;
+end;
+
+constructor TAlignNodesCommand.Create(AGraph: INodeGraphCommandHost;
+  ANodes: TCustomNodeList; Mode: TAlignMode);
+var
+  i: integer;
+  N: TCustomNode;
+  MinX, MinY, MaxX, MaxY: single;
+  CenterX, CenterY: single;
+begin
+  inherited Create(AGraph, 'Align nodes');
+  FNodeIds := TStringList.Create;
+
+  if (ANodes = nil) or (ANodes.Count < 2) then
+    Exit;
+
+  SetLength(FOldX, ANodes.Count);
+  SetLength(FOldY, ANodes.Count);
+  SetLength(FNewX, ANodes.Count);
+  SetLength(FNewY, ANodes.Count);
+
+  MinX := TCustomNode(ANodes[0]).X;
+  MinY := TCustomNode(ANodes[0]).Y;
+  MaxX := TCustomNode(ANodes[0]).X + TCustomNode(ANodes[0]).Width;
+  MaxY := TCustomNode(ANodes[0]).Y + TCustomNode(ANodes[0]).Height;
+
+  for i := 1 to ANodes.Count - 1 do
+  begin
+    N := TCustomNode(ANodes[i]);
+    if N.X < MinX then MinX := N.X;
+    if N.Y < MinY then MinY := N.Y;
+    if N.X + N.Width > MaxX then MaxX := N.X + N.Width;
+    if N.Y + N.Height > MaxY then MaxY := N.Y + N.Height;
+  end;
+
+  CenterX := (MinX + MaxX) * 0.5;
+  CenterY := (MinY + MaxY) * 0.5;
+
+  for i := 0 to ANodes.Count - 1 do
+  begin
+    N := TCustomNode(ANodes[i]);
+    FNodeIds.Add(N.Id);
+    FOldX[i] := N.X;
+    FOldY[i] := N.Y;
+
+    FNewX[i] := N.X;
+    FNewY[i] := N.Y;
+
+    case Mode of
+      amLeft:
+        FNewX[i] := MinX;
+
+      amRight:
+        FNewX[i] := MaxX - N.Width;
+
+      amTop:
+        FNewY[i] := MinY;
+
+      amBottom:
+        FNewY[i] := MaxY - N.Height;
+
+      amCenterHorizontal:
+        FNewX[i] := CenterX - N.Width / 2;
+
+      amCenterVertical:
+        FNewY[i] := CenterY - N.Height / 2;
+    end;
+  end;
+end;
+
+destructor TAlignNodesCommand.Destroy;
+begin
+  FNodeIds.Free;
+  inherited Destroy;
+end;
+
+procedure TAlignNodesCommand.DoExecute;
+var
+  i: integer;
+  N: TCustomNode;
+begin
+  if FGraph = nil then
+    Exit;
+
+  for i := 0 to FNodeIds.Count - 1 do
+  begin
+    N := FGraph.FindNodeById(FNodeIds[i]);
+    if N <> nil then
+    begin
+      N.X := FNewX[i];
+      N.Y := FNewY[i];
+    end;
+  end;
+
+  FGraph.GraphChanged;
+end;
+
+procedure TAlignNodesCommand.Undo;
+var
+  i: integer;
+  N: TCustomNode;
+begin
+  if FGraph = nil then
+    Exit;
+
+  for i := 0 to FNodeIds.Count - 1 do
+  begin
+    N := FGraph.FindNodeById(FNodeIds[i]);
+    if N <> nil then
+    begin
+      N.X := FOldX[i];
+      N.Y := FOldY[i];
+    end;
+  end;
+
+  FGraph.GraphChanged;
+end;
+
+constructor TDistributeNodesCommand.Create(AGraph: INodeGraphCommandHost;
+  ANodes: TCustomNodeList; Mode: TDistributeMode);
+var
+  i: Integer;
+  N: TCustomNode;
+  Sorted: TList;
+  MinCenter, MaxCenter, Step, Center: Single;
+begin
+  inherited Create(AGraph, 'Distribute nodes');
+  FNodeIds := TStringList.Create;
+
+  if (ANodes = nil) or (ANodes.Count < 3) then
+    Exit;
+
+  Sorted := TList.Create;
+  try
+    for i := 0 to ANodes.Count - 1 do
+      Sorted.Add(ANodes[i]);
+
+    if Mode = dmHorizontal then
+      Sorted.Sort(@CompareNodeByX)
+    else
+      Sorted.Sort(@CompareNodeByY);
+
+    SetLength(FOldX, Sorted.Count);
+    SetLength(FOldY, Sorted.Count);
+    SetLength(FNewX, Sorted.Count);
+    SetLength(FNewY, Sorted.Count);
+
+    if Mode = dmHorizontal then
+    begin
+      MinCenter := TCustomNode(Sorted[0]).X +
+        TCustomNode(Sorted[0]).Width / 2;
+      MaxCenter := TCustomNode(Sorted[Sorted.Count - 1]).X +
+        TCustomNode(Sorted[Sorted.Count - 1]).Width / 2;
+    end
+    else
+    begin
+      MinCenter := TCustomNode(Sorted[0]).Y +
+        TCustomNode(Sorted[0]).Height / 2;
+      MaxCenter := TCustomNode(Sorted[Sorted.Count - 1]).Y +
+        TCustomNode(Sorted[Sorted.Count - 1]).Height / 2;
+    end;
+
+    Step := (MaxCenter - MinCenter) / (Sorted.Count - 1);
+
+    for i := 0 to Sorted.Count - 1 do
+    begin
+      N := TCustomNode(Sorted[i]);
+      FNodeIds.Add(N.Id);
+      FOldX[i] := N.X;
+      FOldY[i] := N.Y;
+
+      FNewX[i] := N.X;
+      FNewY[i] := N.Y;
+
+      Center := MinCenter + i * Step;
+
+      if Mode = dmHorizontal then
+        FNewX[i] := Center - N.Width / 2
+      else
+        FNewY[i] := Center - N.Height / 2;
+    end;
+  finally
+    Sorted.Free;
+  end;
+end;
+
+destructor TDistributeNodesCommand.Destroy;
+begin
+  FNodeIds.Free;
+  inherited Destroy;
+end;
+
+procedure TDistributeNodesCommand.DoExecute;
+var
+  i: integer;
+  N: TCustomNode;
+begin
+  if FGraph = nil then
+    Exit;
+
+  for i := 0 to FNodeIds.Count - 1 do
+  begin
+    N := FGraph.FindNodeById(FNodeIds[i]);
+    if N <> nil then
+    begin
+      N.X := FNewX[i];
+      N.Y := FNewY[i];
+    end;
+  end;
+
+  FGraph.GraphChanged;
+end;
+
+procedure TDistributeNodesCommand.Undo;
+var
+  i: integer;
+  N: TCustomNode;
+begin
+  if FGraph = nil then
+    Exit;
+
+  for i := 0 to FNodeIds.Count - 1 do
+  begin
+    N := FGraph.FindNodeById(FNodeIds[i]);
+    if N <> nil then
+    begin
+      N.X := FOldX[i];
+      N.Y := FOldY[i];
+    end;
+  end;
+
+  FGraph.GraphChanged;
+end;
+
+constructor TMakeSameSizeCommand.Create(AGraph: INodeGraphCommandHost;
+  ANodes: TCustomNodeList; Mode: TMatchSizeMode);
+var
+  i: integer;
+  N: TCustomNode;
+  MaxW, MaxH: integer;
+begin
+  inherited Create(AGraph, 'Make same size');
+
+  FNodeIds := TStringList.Create;
+  if (ANodes = nil) or (ANodes.Count < 2) then
+    Exit;
+
+  SetLength(FOldWidths, ANodes.Count);
+  SetLength(FOldHeights, ANodes.Count);
+  SetLength(FNewWidths, ANodes.Count);
+  SetLength(FNewHeights, ANodes.Count);
+
+  MaxW := 0;
+  MaxH := 0;
+  for i := 0 to ANodes.Count - 1 do
+  begin
+    N := TCustomNode(ANodes[i]);
+    if N.Width > MaxW then
+      MaxW := N.Width;
+    if N.Height > MaxH then
+      MaxH := N.Height;
+  end;
+
+  for i := 0 to ANodes.Count - 1 do
+  begin
+    N := TCustomNode(ANodes[i]);
+    FNodeIds.Add(N.Id);
+    FOldWidths[i] := N.Width;
+    FOldHeights[i] := N.Height;
+
+    case Mode of
+      msmWidth:
+        begin
+          FNewWidths[i] := MaxW;
+          FNewHeights[i] := N.Height;
+        end;
+
+      msmHeight:
+        begin
+          FNewWidths[i] := N.Width;
+          FNewHeights[i] := MaxH;
+        end;
+
+      msmBoth:
+        begin
+          FNewWidths[i] := MaxW;
+          FNewHeights[i] := MaxH;
+        end;
+    end;
+  end;
+end;
+
+destructor TMakeSameSizeCommand.Destroy;
+begin
+  FNodeIds.Free;
+  inherited Destroy;
+end;
+
+procedure TMakeSameSizeCommand.DoExecute;
+var
+  i: integer;
+  N: TCustomNode;
+begin
+  if FGraph = nil then
+    Exit;
+
+  for i := 0 to FNodeIds.Count - 1 do
+  begin
+    N := FGraph.FindNodeById(FNodeIds[i]);
+    if N <> nil then
+    begin
+      N.Width := FNewWidths[i];
+      N.Height := FNewHeights[i];
+    end;
+  end;
+
+  FGraph.GraphChanged;
+end;
+
+procedure TMakeSameSizeCommand.Undo;
+var
+  i: integer;
+  N: TCustomNode;
+begin
+  if FGraph = nil then
+    Exit;
+
+  for i := 0 to FNodeIds.Count - 1 do
+  begin
+    N := FGraph.FindNodeById(FNodeIds[i]);
+    if N <> nil then
+    begin
+      N.Width := FOldWidths[i];
+      N.Height := FOldHeights[i];
+    end;
   end;
 
   FGraph.GraphChanged;

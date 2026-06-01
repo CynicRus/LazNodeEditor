@@ -45,6 +45,7 @@ type
     FSelection: TNodeSelectionModel;
     FPinSelection: TPinSelectionModel;
     FClipboard: TNodeClipboardService;
+    function GetSelectedNodes: TCustomNodeList;
   public
     constructor Create(AGraph: TNodeGraph);
     destructor Destroy; override;
@@ -84,6 +85,10 @@ type
 
     function InsertRerouteOnLink(ALink: TNodeLink; AX, AY: single): TCustomNode;
     function AddCommentNode(AX, AY: single): TCustomNode;
+
+    procedure AlignSelectedNodes(Mode: TAlignMode);
+    procedure DistributeSelectedNodes(Mode: TDistributeMode);
+    procedure MakeSelectedNodesSameSize(Mode: TMatchSizeMode);
 
     property Graph: TNodeGraph read FGraph;
     property Selection: TNodeSelectionModel read FSelection;
@@ -467,6 +472,51 @@ begin
   end;
 end;
 
+procedure TNodeEditorController.AlignSelectedNodes(Mode: TAlignMode);
+var
+  Nodes: TCustomNodeList;
+begin
+  if (FGraph = nil) or (FSelection = nil) or (FSelection.NodeCount < 2) then
+    Exit;
+
+  Nodes := GetSelectedNodes;
+  try
+    FGraph.ExecuteCommand(TAlignNodesCommand.Create(FGraph, Nodes, Mode));
+  finally
+    Nodes.Free;
+  end;
+end;
+
+procedure TNodeEditorController.DistributeSelectedNodes(Mode: TDistributeMode);
+var
+  Nodes: TCustomNodeList;
+begin
+  if (FGraph = nil) or (FSelection = nil) or (FSelection.NodeCount < 3) then
+    Exit;
+
+  Nodes := GetSelectedNodes;
+  try
+    FGraph.ExecuteCommand(TDistributeNodesCommand.Create(FGraph, Nodes, Mode));
+  finally
+    Nodes.Free;
+  end;
+end;
+
+procedure TNodeEditorController.MakeSelectedNodesSameSize(Mode: TMatchSizeMode);
+var
+  Nodes: TCustomNodeList;
+begin
+  if (FGraph = nil) or (FSelection = nil) or (FSelection.NodeCount < 2) then
+    Exit;
+
+  Nodes := GetSelectedNodes;
+  try
+    FGraph.ExecuteCommand(TMakeSameSizeCommand.Create(FGraph, Nodes, Mode));
+  finally
+    Nodes.Free;
+  end;
+end;
+
 procedure TNodeEditorController.DeleteSelection;
 var
   i: integer;
@@ -551,6 +601,17 @@ begin
   AfterJSON := FGraph.CaptureJSONText;
 
   FGraph.ExecuteJSONSnapshotCommand(BeforeJSON, AfterJSON, 'Duplicate selection');
+end;
+
+function TNodeEditorController.GetSelectedNodes: TCustomNodeList;
+var
+  i: integer;
+begin
+  Result := TCustomNodeList.Create(False);
+  if FSelection = nil then Exit;
+
+  for i := 0 to FSelection.NodeCount - 1 do
+    Result.Add(FSelection.GetNode(i));
 end;
 
 { TNodeSearchForm }
