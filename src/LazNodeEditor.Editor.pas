@@ -54,6 +54,7 @@ type
     eaConnectPins,
     eaSelectAll,
     eaSelectAllLinks,
+    eaFrameSelected,
 
     eaAlignLeft,
     eaAlignRight,
@@ -68,7 +69,7 @@ type
     eaSameWidth,
     eaSameHeight,
     eaSameSize
-  );
+    );
 
   TNodeSelectionChangedEvent = procedure(Sender: TObject) of object;
   TNodeChangedEvent = procedure(Sender: TObject; ANode: TCustomNode) of object;
@@ -193,8 +194,8 @@ type
     procedure DoExit; override;
     procedure MouseLeave; override;
     procedure Resize; override;
-    function ResolveShortcut(Key: Word; Shift: TShiftState): TEditorAction; virtual;
-    function ExecuteEditorAction(AAction: TEditorAction): Boolean; virtual;
+    function ResolveShortcut(Key: word; Shift: TShiftState): TEditorAction; virtual;
+    function ExecuteEditorAction(AAction: TEditorAction): boolean; virtual;
     procedure SelectNodeInternal(ANode: TCustomNode; AAppend: boolean);
     procedure SelectLinkInternal(ALink: TNodeLink; AKeepNodes: boolean = False);
     procedure ClearSelectionInternal;
@@ -331,8 +332,7 @@ type
     property SnapToNodes: boolean read FSnapToNodes write FSnapToNodes default True;
     property NodeSnapDistance: single read FNodeSnapDistance write FNodeSnapDistance;
     property MinTitleZoom: double read FMinTitleZoom write FMinTitleZoom;
-    property MinPinLabelZoom: double read FMinPinLabelZoom
-      write FMinPinLabelZoom;
+    property MinPinLabelZoom: double read FMinPinLabelZoom write FMinPinLabelZoom;
     property MinDetailLevelZoom: double read FMinDetailZoom write FMinDetailZoom;
 
     property OnSelectionChanged: TNodeSelectionChangedEvent
@@ -766,7 +766,7 @@ begin
     FGLControl.Invalidate;
 end;
 
-function TLazNodeEditor.ResolveShortcut(Key: Word; Shift: TShiftState): TEditorAction;
+function TLazNodeEditor.ResolveShortcut(Key: word; Shift: TShiftState): TEditorAction;
 begin
   Result := eaNone;
 
@@ -782,7 +782,7 @@ begin
   if (Key = Ord('A')) and (Shift = [ssCtrl]) then Exit(eaSelectAll);
   if (Key = Ord('A')) and (Shift = [ssShift]) then Exit(eaSelectAllLinks);
 
-  if Key = Ord('F') then Exit(eaFrame);
+  if (Key = Ord('F')) and (Shift = []) then Exit(eaFrame);
 
   if Shift = [ssCtrl, ssShift] then
     case Key of
@@ -795,6 +795,7 @@ begin
       Ord('W'): Exit(eaSameWidth);
       Ord('E'): Exit(eaSameHeight);
       Ord('S'): Exit(eaSameSize);
+      Ord('F'): Exit(eaFrameSelected);
     end;
 
   if Shift = [ssCtrl, ssAlt] then
@@ -804,9 +805,9 @@ begin
     end;
 end;
 
-function TLazNodeEditor.ExecuteEditorAction(AAction: TEditorAction): Boolean;
+function TLazNodeEditor.ExecuteEditorAction(AAction: TEditorAction): boolean;
 var
-  i: Integer;
+  i: integer;
 begin
   Result := True;
 
@@ -824,68 +825,75 @@ begin
       CopySelectionToClipboard;
 
     eaPaste:
-      begin
-        FContextWorldPos := FViewport.ScreenToWorld(ClientWidth div 2, ClientHeight div 2);
-        PasteFromClipboard;
-      end;
+    begin
+      FContextWorldPos := FViewport.ScreenToWorld(ClientWidth div
+        2, ClientHeight div 2);
+      PasteFromClipboard;
+    end;
 
     eaDuplicate:
       DuplicateSelection;
 
     eaFrame:
-      begin
-        if FController.Selection.NodeCount > 0 then
-          FitToSelection
-        else
-          FrameAll;
-      end;
+    begin
+      if FController.Selection.NodeCount > 0 then
+        FitToSelection
+      else
+        FrameAll;
+    end;
 
     eaConnectPins:
       ConnectSelectedPins;
 
     eaSelectAll:
-      begin
-        ClearSelectionInternal;
-        FController.Selection.BeginUpdate;
-        try
-          for i := 0 to FGraph.Nodes.Count - 1 do
-            FController.Selection.AddNodeToSelection(TCustomNode(FGraph.Nodes[i]));
-          for i := 0 to FGraph.Links.Count - 1 do
-            FController.Selection.AddLinkToSelection(TNodeLink(FGraph.Links[i]));
-        finally
-          FController.Selection.EndUpdate;
-        end;
-        NotifySelectionChanged;
-        Invalidate;
+    begin
+      ClearSelectionInternal;
+      FController.Selection.BeginUpdate;
+      try
+        for i := 0 to FGraph.Nodes.Count - 1 do
+          FController.Selection.AddNodeToSelection(TCustomNode(FGraph.Nodes[i]));
+        for i := 0 to FGraph.Links.Count - 1 do
+          FController.Selection.AddLinkToSelection(TNodeLink(FGraph.Links[i]));
+      finally
+        FController.Selection.EndUpdate;
       end;
+      NotifySelectionChanged;
+      Invalidate;
+    end;
 
     eaSelectAllLinks:
-      begin
-        ClearSelectionInternal;
-        FController.Selection.BeginUpdate;
-        try
-          for i := 0 to FGraph.Links.Count - 1 do
-            FController.Selection.AddLinkToSelection(TNodeLink(FGraph.Links[i]));
-        finally
-          FController.Selection.EndUpdate;
-        end;
-        NotifySelectionChanged;
-        Invalidate;
+    begin
+      ClearSelectionInternal;
+      FController.Selection.BeginUpdate;
+      try
+        for i := 0 to FGraph.Links.Count - 1 do
+          FController.Selection.AddLinkToSelection(TNodeLink(FGraph.Links[i]));
+      finally
+        FController.Selection.EndUpdate;
       end;
+      NotifySelectionChanged;
+      Invalidate;
+    end;
+    eaFrameSelected:
+    begin
+      Controller.FrameSelected;
+      NotifySelectionChanged;
+      Invalidate;
+    end;
 
-    eaAlignLeft:      Controller.AlignSelectedNodes(amLeft);
-    eaAlignRight:     Controller.AlignSelectedNodes(amRight);
-    eaAlignTop:       Controller.AlignSelectedNodes(amTop);
-    eaAlignBottom:    Controller.AlignSelectedNodes(amBottom);
-    eaAlignCenterH:   Controller.AlignSelectedNodes(amCenterHorizontal);
-    eaAlignCenterV:   Controller.AlignSelectedNodes(amCenterVertical);
+    eaAlignLeft: Controller.AlignSelectedNodes(amLeft);
+    eaAlignRight: Controller.AlignSelectedNodes(amRight);
+    eaAlignTop: Controller.AlignSelectedNodes(amTop);
+    eaAlignBottom: Controller.AlignSelectedNodes(amBottom);
+    eaAlignCenterH: Controller.AlignSelectedNodes(amCenterHorizontal);
+    eaAlignCenterV: Controller.AlignSelectedNodes(amCenterVertical);
 
-    eaDistributeH:    Controller.DistributeSelectedNodes(dmHorizontal);
-    eaDistributeV:    Controller.DistributeSelectedNodes(dmVertical);
+    eaDistributeH: Controller.DistributeSelectedNodes(dmHorizontal);
+    eaDistributeV: Controller.DistributeSelectedNodes(dmVertical);
 
-    eaSameWidth:      Controller.MakeSelectedNodesSameSize(msmWidth);
-    eaSameHeight:     Controller.MakeSelectedNodesSameSize(msmHeight);
-    eaSameSize:       Controller.MakeSelectedNodesSameSize(msmBoth);
+    eaSameWidth: Controller.MakeSelectedNodesSameSize(msmWidth);
+    eaSameHeight: Controller.MakeSelectedNodesSameSize(msmHeight);
+    eaSameSize: Controller.MakeSelectedNodesSameSize(msmBoth);
 
     else
       Result := False;
