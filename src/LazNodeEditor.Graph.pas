@@ -148,8 +148,10 @@ type
     function StructureVersion: QWord;
     function QueryNodes(const R: TRectF; AList: TFPList): integer;
     function QueryLinks(const R: TRectF; AList: TFPList): integer;
-    function QueryNodesAtPoint(const P: TPointF; Radius: single; AList: TFPList): integer;
-    function QueryLinksAtPoint(const P: TPointF; Radius: single; AList: TFPList): integer;
+    function QueryNodesAtPoint(const P: TPointF; Radius: single;
+      AList: TFPList): integer;
+    function QueryLinksAtPoint(const P: TPointF; Radius: single;
+      AList: TFPList): integer;
     procedure NotifyNodeGeometryChanged(ANode: TCustomNode);
     procedure NotifyLinkGeometryChanged(ALink: TNodeLink);
 
@@ -167,28 +169,45 @@ type
       read FOnGraphChanged write FOnGraphChanged;
   end;
 
-
-function NodePaintCompare(Item1, Item2: Pointer): integer;
+function NodeVisualLayer(ANode: TCustomNode): integer; inline;
+function NodePaintCompare(Item1, Item2: Pointer): integer; inline;
 procedure BuildSortedNodeList(AGraph: TNodeGraph; AList: TList);
 
 implementation
 
-function NodePaintCompare(Item1, Item2: Pointer): integer;
-var
-  A, B: TCustomNode;
+function NodeVisualLayer(ANode: TCustomNode): integer; inline;
 begin
-  A := TCustomNode(Item1);
-  B := TCustomNode(Item2);
-  if A.Selected and not B.Selected then
-    Result := 1
-  else if not A.Selected and B.Selected then
-    Result := -1
-  else if (A.ZOrder < B.ZOrder) then
-    Result := -1
-  else if (A.ZOrder > B.ZOrder) then
-    Result := 1
-  else
-    Result := 0;
+  if ANode = nil then
+    Exit(0);
+
+  case ANode.VisualKind of
+    nvComment: Result := 0;
+    nvNormal: Result := 1;
+    nvReroute: Result := 2;
+    else
+      Result := 1;
+  end;
+end;
+
+function NodePaintCompare(Item1, Item2: Pointer): integer; inline;
+var
+  N1, N2: TCustomNode;
+  L1, L2: integer;
+begin
+  N1 := TCustomNode(Item1);
+  N2 := TCustomNode(Item2);
+  if N1 = N2 then Exit(0);
+  if N1 = nil then Exit(-1);
+  if N2 = nil then Exit(1);
+
+  L1 := NodeVisualLayer(N1);
+  L2 := NodeVisualLayer(N2);
+
+  Result := L1 - L2;
+  if Result = 0 then
+    Result := N1.ZOrder - N2.ZOrder;
+  if Result = 0 then
+    Result := PtrUInt(N1) - PtrUInt(N2);
 end;
 
 
@@ -509,7 +528,7 @@ end;
 
 function TNodeGraph.GetNodeRegistry(): TNodeRegistry;
 begin
-  result := self.Registry;
+  Result := self.Registry;
 end;
 
 function TNodeGraph.HasLinksBetweenNodes(ANodeA, ANodeB: TCustomNode): boolean;
@@ -888,7 +907,7 @@ end;
 
 function TNodeGraph.GetLinks: TNodeLinkList;
 begin
-  result := FLinks;
+  Result := FLinks;
 end;
 
 procedure TNodeGraph.DoGraphChanged;
@@ -1508,13 +1527,13 @@ begin
     Result := RectF(P.X, P.Y, P.X, P.Y);
 
     for k := 1 to 24 do
-      IncludePoint(CubicBezierPointF(
-        Path.Points[0], Path.Points[1], Path.Points[2], Path.Points[3], k / 24
-      ));
+      IncludePoint(CubicBezierPointF(Path.Points[0], Path.Points[1],
+        Path.Points[2], Path.Points[3], k / 24));
   end
   else
   begin
-    Result := RectF(Path.Points[0].X, Path.Points[0].Y, Path.Points[0].X, Path.Points[0].Y);
+    Result := RectF(Path.Points[0].X, Path.Points[0].Y, Path.Points[0].X,
+      Path.Points[0].Y);
     for i := 1 to High(Path.Points) do
     begin
       P := Path.Points[i];
@@ -1582,13 +1601,15 @@ end;
 function TNodeGraph.QueryNodesAtPoint(const P: TPointF; Radius: single;
   AList: TFPList): integer;
 begin
-  Result := QueryNodes(RectF(P.X - Radius, P.Y - Radius, P.X + Radius, P.Y + Radius), AList);
+  Result := QueryNodes(RectF(P.X - Radius, P.Y - Radius, P.X + Radius,
+    P.Y + Radius), AList);
 end;
 
 function TNodeGraph.QueryLinksAtPoint(const P: TPointF; Radius: single;
   AList: TFPList): integer;
 begin
-  Result := QueryLinks(RectF(P.X - Radius, P.Y - Radius, P.X + Radius, P.Y + Radius), AList);
+  Result := QueryLinks(RectF(P.X - Radius, P.Y - Radius, P.X + Radius,
+    P.Y + Radius), AList);
 end;
 
 procedure TNodeGraph.NotifyNodeGeometryChanged(ANode: TCustomNode);

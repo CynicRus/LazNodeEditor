@@ -414,8 +414,7 @@ type
 
   end;
 
-function NodeVisualLayer(ANode: TCustomNode): integer; inline;
-function NodePaintCompare(Item1, Item2: Pointer): integer;
+
 function LinkSortKey(ALink: TNodeLink): integer; inline;
 
 implementation
@@ -466,40 +465,6 @@ begin
     Clip(-Dy, P1.Y - R.Top, T0, T1) and Clip(Dy, R.Bottom - P1.Y, T0, T1);
 end;
 
-function NodeVisualLayer(ANode: TCustomNode): integer; inline;
-begin
-  if ANode = nil then
-    Exit(0);
-
-  case ANode.VisualKind of
-    nvComment: Result := 0;
-    nvNormal: Result := 1;
-    nvReroute: Result := 2;
-    else
-      Result := 1;
-  end;
-end;
-
-function NodePaintCompare(Item1, Item2: Pointer): integer;
-var
-  N1, N2: TCustomNode;
-  L1, L2: integer;
-begin
-  N1 := TCustomNode(Item1);
-  N2 := TCustomNode(Item2);
-  if N1 = N2 then Exit(0);
-  if N1 = nil then Exit(-1);
-  if N2 = nil then Exit(1);
-
-  L1 := NodeVisualLayer(N1);
-  L2 := NodeVisualLayer(N2);
-
-  Result := L1 - L2;
-  if Result = 0 then
-    Result := N1.ZOrder - N2.ZOrder;
-  if Result = 0 then
-    Result := PtrUInt(N1) - PtrUInt(N2);
-end;
 
 function LinkSortKey(ALink: TNodeLink): integer; inline;
 var
