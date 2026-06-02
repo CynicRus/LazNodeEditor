@@ -26,6 +26,9 @@
     </RunParams>
     <RequiredPackages>
       <Item>
+        <PackageName Value="lazopenglcontext"/>
+      </Item>
+      <Item>
         <PackageName Value="LCL"/>
       </Item>
     </RequiredPackages>
@@ -47,6 +50,19 @@
         <IsPartOfProject Value="True"/>
         <UnitName Value="LazNodeEditor"/>
       </Unit>
+      <Unit>
+        <Filename Value="..\src\genericdag.pas"/>
+        <IsPartOfProject Value="True"/>
+        <UnitName Value="GenericDAG"/>
+      </Unit>
+      <Unit>
+        <Filename Value="..\src\LazNodeEditor.Selection.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="..\src\GL2DCanvas.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit>
     </Units>
   </ProjectOptions>
   <CompilerOptions>
@@ -60,10 +76,18 @@
       <OtherUnitFiles Value="..\src"/>
       <UnitOutputDirectory Value="lib\$(TargetCPU)-$(TargetOS)"/>
     </SearchPaths>
+    <CodeGeneration>
+      <SmartLinkUnit Value="True"/>
+      <Optimizations>
+        <OptimizationLevel Value="4"/>
+      </Optimizations>
+    </CodeGeneration>
     <Linking>
       <Debugging>
+        <GenerateDebugInfo Value="False"/>
         <DebugInfoType Value="dsDwarf3"/>
       </Debugging>
+      <LinkSmart Value="True"/>
       <Options>
         <Win32>
           <GraphicApplication Value="True"/>
