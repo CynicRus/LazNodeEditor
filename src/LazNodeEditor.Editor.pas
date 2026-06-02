@@ -724,6 +724,8 @@ begin
   if FGraph.DefaultLinkDrawStyle = AValue then
     Exit;
   FGraph.DefaultLinkDrawStyle := AValue;
+  if FGraph.LinkRouter <> nil then
+    FGraph.LinkRouter.InvalidateCache;
   Invalidate;
 end;
 
@@ -1043,78 +1045,161 @@ end;
 
 function TLazNodeEditor.HitTestNodeAt(SX, SY: integer): TCustomNode;
 var
-  i: integer;
   W: TPointF;
+  Candidates: TFPList;
+  i: integer;
   N: TCustomNode;
+  BestNode: TCustomNode;
+  BestLayer: integer;
+  BestZ: integer;
 begin
   Result := nil;
   W := ScreenToWorld(SX, SY);
-  EnsureSortedNodes;
-  for i := FPaintNodesSorted.Count - 1 downto 0 do
-  begin
-    N := TCustomNode(FPaintNodesSorted[i]);
-    if (N <> nil) and N.HitTestNode(W.X, W.Y) then
-      Exit(N);
+
+  Candidates := TFPList.Create;
+  try
+    if FGraph <> nil then
+      FGraph.QueryNodesAtPoint(W, 1.0 / Max(FViewport.Zoom, 0.001), Candidates);
+
+    BestNode := nil;
+    BestLayer := Low(integer);
+    BestZ := Low(integer);
+
+    for i := 0 to Candidates.Count - 1 do
+    begin
+      N := TCustomNode(Candidates[i]);
+      if (N = nil) or (not N.HitTestNode(W.X, W.Y)) then
+        Continue;
+
+      if (BestNode = nil) or
+         (NodeVisualLayer(N) > BestLayer) or
+         ((NodeVisualLayer(N) = BestLayer) and (N.ZOrder > BestZ)) or
+         ((NodeVisualLayer(N) = BestLayer) and (N.ZOrder = BestZ) and
+          (PtrUInt(N) > PtrUInt(BestNode))) then
+      begin
+        BestNode := N;
+        BestLayer := NodeVisualLayer(N);
+        BestZ := N.ZOrder;
+      end;
+    end;
+
+    Result := BestNode;
+  finally
+    Candidates.Free;
   end;
 end;
 
 function TLazNodeEditor.HitTestPinAt(SX, SY: integer; out ANode: TCustomNode): TNodePin;
 var
-  i: integer;
   W: TPointF;
+  Candidates: TFPList;
+  i: integer;
   N: TCustomNode;
+  P: TNodePin;
+  BestNode: TCustomNode;
+  BestLayer: integer;
+  BestZ: integer;
 begin
   Result := nil;
   ANode := nil;
   W := ScreenToWorld(SX, SY);
-  EnsureSortedNodes;
-  for i := FPaintNodesSorted.Count - 1 downto 0 do
-  begin
-    N := TCustomNode(FPaintNodesSorted[i]);
-    if N = nil then
-      Continue;
-    Result := N.HitTestPin(W.X, W.Y, FViewport.Zoom);
-    if Result <> nil then
+
+  Candidates := TFPList.Create;
+  try
+    if FGraph <> nil then
+      FGraph.QueryNodesAtPoint(W, 12.0 / Max(FViewport.Zoom, 0.001), Candidates);
+
+    BestNode := nil;
+    BestLayer := Low(integer);
+    BestZ := Low(integer);
+
+    for i := 0 to Candidates.Count - 1 do
     begin
-      ANode := N;
-      Exit;
+      N := TCustomNode(Candidates[i]);
+      if N = nil then
+        Continue;
+
+      P := N.HitTestPin(W.X, W.Y, FViewport.Zoom);
+      if P = nil then
+        Continue;
+
+      if (BestNode = nil) or
+         (NodeVisualLayer(N) > BestLayer) or
+         ((NodeVisualLayer(N) = BestLayer) and (N.ZOrder > BestZ)) or
+         ((NodeVisualLayer(N) = BestLayer) and (N.ZOrder = BestZ) and
+          (PtrUInt(N) > PtrUInt(BestNode))) then
+      begin
+        Result := P;
+        ANode := N;
+        BestNode := N;
+        BestLayer := NodeVisualLayer(N);
+        BestZ := N.ZOrder;
+      end;
     end;
+  finally
+    Candidates.Free;
   end;
 end;
 
 function TLazNodeEditor.HitTestLinkAt(SX, SY: integer): TNodeLink;
 var
-  i: integer;
   W: TPointF;
-  L: TNodeLink;
   Tol: single;
+  Candidates: TFPList;
+  i: integer;
+  L: TNodeLink;
+  BestLink: TNodeLink;
+  BestKey: integer;
 begin
   Result := nil;
   W := ScreenToWorld(SX, SY);
   Tol := 8 / Max(FViewport.Zoom, 0.001);
 
-  for i := FGraph.Links.Count - 1 downto 0 do
-  begin
-    L := TNodeLink(FGraph.Links[i]);
-    if L = nil then
-      Continue;
+  Candidates := TFPList.Create;
+  try
+    if FGraph <> nil then
+      FGraph.QueryLinksAtPoint(W, Tol + 12, Candidates);
 
-    if (FGraph.LinkRouter <> nil) then
+    BestLink := nil;
+    BestKey := Low(integer);
+
+    for i := 0 to Candidates.Count - 1 do
     begin
-      if FGraph.LinkRouter.HitTest(L, W, Tol) then
-        Exit(L);
-    end
-    else if L.HitTest(W, Tol) then
-      Exit(L);
+      L := TNodeLink(Candidates[i]);
+      if L = nil then
+        Continue;
+
+      if (FGraph.LinkRouter <> nil) then
+      begin
+        if not FGraph.LinkRouter.HitTest(L, W, Tol) then
+          Continue;
+      end
+      else if not L.HitTest(W, Tol) then
+        Continue;
+
+      if (BestLink = nil) or (LinkSortKey(L) >= BestKey) then
+      begin
+        BestLink := L;
+        BestKey := LinkSortKey(L);
+      end;
+    end;
+
+    Result := BestLink;
+  finally
+    Candidates.Free;
   end;
 end;
 
 function TLazNodeEditor.HitTestResizeHandleAt(SX, SY: integer): TCustomNode;
 var
-  i: integer;
   W: TPointF;
+  Candidates: TFPList;
+  i: integer;
   N: TCustomNode;
   RS: TNodeRenderState;
+  BestNode: TCustomNode;
+  BestLayer: integer;
+  BestZ: integer;
 begin
   Result := nil;
   W := ScreenToWorld(SX, SY);
@@ -1132,12 +1217,36 @@ begin
   RS.TempFromPin := FInteraction.TempFromPin;
   RS.HoveredPinCompatible := FHoveredPinCompatible;
 
-  EnsureSortedNodes;
-  for i := FPaintNodesSorted.Count - 1 downto 0 do
-  begin
-    N := TCustomNode(FPaintNodesSorted[i]);
-    if (N <> nil) and N.HitTestResizeHandle(W.X, W.Y, RS) then
-      Exit(N);
+  Candidates := TFPList.Create;
+  try
+    if FGraph <> nil then
+      FGraph.QueryNodesAtPoint(W, 16.0 / Max(FViewport.Zoom, 0.001), Candidates);
+
+    BestNode := nil;
+    BestLayer := Low(integer);
+    BestZ := Low(integer);
+
+    for i := 0 to Candidates.Count - 1 do
+    begin
+      N := TCustomNode(Candidates[i]);
+      if (N = nil) or (not N.HitTestResizeHandle(W.X, W.Y, RS)) then
+        Continue;
+
+      if (BestNode = nil) or
+         (NodeVisualLayer(N) > BestLayer) or
+         ((NodeVisualLayer(N) = BestLayer) and (N.ZOrder > BestZ)) or
+         ((NodeVisualLayer(N) = BestLayer) and (N.ZOrder = BestZ) and
+          (PtrUInt(N) > PtrUInt(BestNode))) then
+      begin
+        BestNode := N;
+        BestLayer := NodeVisualLayer(N);
+        BestZ := N.ZOrder;
+      end;
+    end;
+
+    Result := BestNode;
+  finally
+    Candidates.Free;
   end;
 end;
 

@@ -22,6 +22,7 @@
 unit LazNodeEditor.Renderer;
 
 {$mode objfpc}{$H+}
+{$modeSwitch advancedRecords}
 
 interface
 
@@ -32,7 +33,12 @@ uses
   LazNodeEditor.Graph,
   GL2DCanvas,
   LazNodeEditor.LinkRouter,
-  LazNodeEditor.GLCanvasProxy;
+  LazNodeEditor.GLCanvasProxy
+  {$IFDEF WINDOWS}
+  , Windows
+  {$ELSE}
+  , BaseUnix, Unix, UnixType, ctypes
+  {$ENDIF};
 
 type
   TRendererBackend = (
@@ -52,7 +58,7 @@ type
     rckNone,
     rckGDI,
     rckGL2D
-    );
+  );
 
   TRenderNodeDrawEvent = procedure(Sender: TObject; Canvas: TCanvas;
     ANode: TCustomNode; const ARect: TRect; Zoom: double;
@@ -82,6 +88,23 @@ type
   TRenderScrollBarsDrawEvent = procedure(Sender: TObject; Canvas: TCanvas;
     ShowHorizontal, ShowVertical: boolean; const HThumbRect, VThumbRect: TRect;
     const HTrackRect, VTrackRect: TRect; var AHandled: boolean) of object;
+
+  { THighResTimer }
+
+  THighResTimer = record
+  private
+    {$IFDEF WINDOWS}
+    FStartCounter: Int64;
+    class var FFrequency: Int64;
+    class var FFrequencyInited: Boolean;
+    class procedure EnsureFrequency; static;
+    {$ELSE}
+    FStartTime: TTimespec;
+    {$ENDIF}
+  public
+    procedure Start;
+    function ElapsedMs: Double;
+  end;
 
   { TRenderStyle }
 
@@ -119,6 +142,7 @@ type
     FScrollBarHoverColor: TColor;
     FScrollBarActiveColor: TColor;
 
+    FDebugInfo: boolean;
     procedure SetDefaults;
   public
     constructor Create;
@@ -172,6 +196,8 @@ type
       write FScrollBarHoverColor default $009A9A9A;
     property ScrollBarActiveColor: TColor read FScrollBarActiveColor
       write FScrollBarActiveColor default $00707070;
+
+    property DebugInfo: boolean read FDebugInfo write FDebugInfo default False;
   end;
 
   TRenderContext = class
@@ -227,6 +253,9 @@ type
     VScrollHot: boolean;
     HScrollActive: boolean;
     VScrollActive: boolean;
+
+    DebugFrameTimeMs: Double;
+    DebugPaintNodeCount: Integer;
 
     OnDrawNode: TRenderNodeDrawEvent;
     OnDrawPin: TRenderPinDrawEvent;
@@ -290,6 +319,10 @@ type
     procedure DrawDragCoordinates(const AContext: TRenderContext); virtual;
     procedure DrawScrollBars(const AContext: TRenderContext); virtual;
 
+    procedure DrawDebugInfo(const AContext: TRenderContext); virtual;
+    function GetCanvasKindName(const AContext: TRenderContext): string; virtual;
+    function GetContextName(const AContext: TRenderContext): string; virtual;
+
     procedure ResetCanvasState(const AContext: TRenderContext); virtual;
 
     procedure SetPen(const AContext: TRenderContext; AColor: TColor;
@@ -344,6 +377,58 @@ type
 
 implementation
 
+{ THighResTimer }
+
+{$IFDEF WINDOWS}
+class procedure THighResTimer.EnsureFrequency;
+begin
+  if not FFrequencyInited then
+  begin
+    if not QueryPerformanceFrequency(FFrequency) then
+      FFrequency := 0;
+    FFrequencyInited := True;
+  end;
+end;
+{$ENDIF}
+
+procedure THighResTimer.Start;
+{$IFDEF WINDOWS}
+begin
+  EnsureFrequency;
+  if FFrequency <> 0 then
+    QueryPerformanceCounter(FStartCounter)
+  else
+    FStartCounter := 0;
+end;
+{$ELSE}
+begin
+  fpclock_gettime(CLOCK_MONOTONIC, @FStartTime);
+{$ENDIF}
+
+function THighResTimer.ElapsedMs: Double;
+{$IFDEF WINDOWS}
+var
+  C: Int64;
+begin
+  EnsureFrequency;
+  if (FFrequency = 0) or (FStartCounter = 0) then
+    Exit(0);
+
+  QueryPerformanceCounter(C);
+  Result := (C - FStartCounter) * 1000.0 / FFrequency;
+end;
+{$ELSE}
+var
+  T: TTimespec;
+  SecDiff, NSecDiff: Int64;
+begin
+  fpclock_gettime(CLOCK_MONOTONIC, @T);
+  SecDiff := T.tv_sec - FStartTime.tv_sec;
+  NSecDiff := T.tv_nsec - FStartTime.tv_nsec;
+  Result := SecDiff * 1000.0 + NSecDiff / 1000000.0;
+end;
+{$ENDIF}
+
 { TRenderStyle }
 
 constructor TRenderStyle.Create;
@@ -386,6 +471,8 @@ begin
   FScrollBarBorderColor := $00606060;
   FScrollBarHoverColor := $009A9A9A;
   FScrollBarActiveColor := $00707070;
+
+  FDebugInfo := False;
 end;
 
 procedure TRenderStyle.Assign(Source: TPersistent);
@@ -428,6 +515,8 @@ begin
     FScrollBarBorderColor := S.FScrollBarBorderColor;
     FScrollBarHoverColor := S.FScrollBarHoverColor;
     FScrollBarActiveColor := S.FScrollBarActiveColor;
+
+    FDebugInfo := S.FDebugInfo;
   end;
 end;
 
@@ -485,10 +574,16 @@ begin
 end;
 
 procedure TAbstractNodeEditorRenderer.Render(const AContext: TRenderContext);
+var
+  Timer: THighResTimer;
 begin
   if AContext = nil then
     Exit;
 
+  AContext.DebugPaintNodeCount := 0;
+  AContext.DebugFrameTimeMs := 0;
+
+  Timer.Start;
   BeginFrame(AContext);
   try
     FillBackground(AContext);
@@ -502,10 +597,14 @@ begin
     DrawBoxSelect(AContext);
     DrawDragCoordinates(AContext);
     DrawScrollBars(AContext);
+
+    AContext.DebugFrameTimeMs := Timer.ElapsedMs;
+    DrawDebugInfo(AContext);
   finally
     ResetCanvasState(AContext);
     EndFrame(AContext);
   end;
+
 end;
 
 procedure TAbstractNodeEditorRenderer.FillBackground(const AContext: TRenderContext);
@@ -653,6 +752,8 @@ begin
 
   DrawNodePins(AContext, ANode);
   DrawResizeHandle(AContext, ANode);
+
+  Inc(AContext.DebugPaintNodeCount);
 end;
 
 procedure TAbstractNodeEditorRenderer.DrawCommentNodes(const AContext: TRenderContext);
@@ -955,13 +1056,13 @@ begin
     S3)) + Pad * 2;
   H := LineH * 3 + Pad * 2;
 
-  R := Rect(P.X + 4, P.Y + 4, P.X + 4 + W, P.Y + 4 + H);
+  R := Classes.Rect(P.X + 4, P.Y + 4, P.X + 4 + W, P.Y + 4 + H);
 
   SetBrush(AContext, FStyle.CoordOverlayBackground, bsSolid);
   SetPen(AContext, FStyle.CoordOverlayBorderColor, 1, psSolid);
   RectangleEx(AContext, R);
 
-  TextR := Rect(R.Left + Pad, R.Top + Pad, R.Right - Pad, R.Bottom - Pad);
+  TextR := Classes.Rect(R.Left + Pad, R.Top + Pad, R.Right - Pad, R.Bottom - Pad);
 
   if AContext.HasGDI then
   begin
@@ -979,6 +1080,96 @@ begin
     AContext.GLCanvas.TextOut(TextR.Left, TextR.Top, S1);
     AContext.GLCanvas.TextOut(TextR.Left, TextR.Top + LineH, S2);
     AContext.GLCanvas.TextOut(TextR.Left, TextR.Top + LineH * 2, S3);
+    AContext.GLCanvas.Brush.Style := bsSolid;
+  end;
+end;
+
+function TAbstractNodeEditorRenderer.GetCanvasKindName(
+  const AContext: TRenderContext): string;
+begin
+  case AContext.CanvasKind of
+    rckNone: Result := 'None';
+    rckGDI: Result := 'TCanvas';
+    rckGL2D: Result := 'OpenGL2D 4.6';
+    else
+    Result := 'Unknown';
+  end;
+end;
+
+function TAbstractNodeEditorRenderer.GetContextName(
+  const AContext: TRenderContext): string;
+begin
+  case Backend of
+    rbGDI:
+      Result := 'GDI';
+    rbOpenGL2D:
+      Result := 'OpenGL2D';
+    else
+      Result := 'Unknown';
+  end;
+end;
+
+procedure TAbstractNodeEditorRenderer.DrawDebugInfo(
+  const AContext: TRenderContext);
+var
+  S1, S2, S3, S4, S5: string;
+  R, TextR: TRect;
+  W, H, Pad, LineH: Integer;
+begin
+  if not FStyle.DebugInfo then
+    Exit;
+  if AContext.EventCanvas = nil then
+    Exit;
+
+  S1 := Format('%.0fms', [AContext.DebugFrameTimeMs]);
+  S2 := Format('Canvas: %s', [GetCanvasKindName(AContext)]);
+  S3 := Format('Context: %s', [GetContextName(AContext)]);
+  S4 := Format('X: %.2f, Y: %.2f',
+    [AContext.VisibleWorldRect.Left,
+     AContext.VisibleWorldRect.Top]);
+  S5 := Format('Paint nodes: %d', [AContext.DebugPaintNodeCount]);
+
+  SetFont(AContext, FStyle.CoordOverlayTextColor, 8);
+
+  Pad := 6;
+  LineH := AContext.EventCanvas.TextHeight('Hg');
+  W := Max(
+       Max(
+         Max(AContext.EventCanvas.TextWidth(S1), AContext.EventCanvas.TextWidth(S2)),
+         Max(AContext.EventCanvas.TextWidth(S3), AContext.EventCanvas.TextWidth(S4))
+       ),
+       AContext.EventCanvas.TextWidth(S5)
+     ) + Pad * 2;
+  H := LineH * 5 + Pad * 2;
+
+  R := Classes.Rect(12, 12, 12 + W, 12 + H);
+
+  SetBrush(AContext, FStyle.CoordOverlayBackground, bsSolid);
+  SetPen(AContext, FStyle.CoordOverlayBorderColor, 1, psSolid);
+  RectangleEx(AContext, R);
+
+  TextR := Classes.Rect(R.Left + Pad, R.Top + Pad, R.Right - Pad, R.Bottom - Pad);
+
+  if AContext.HasGDI then
+  begin
+    AContext.GDICanvas.Brush.Style := bsClear;
+    AContext.GDICanvas.Font.Color := FStyle.CoordOverlayTextColor;
+    AContext.GDICanvas.TextOut(TextR.Left, TextR.Top, S1);
+    AContext.GDICanvas.TextOut(TextR.Left, TextR.Top + LineH * 1, S2);
+    AContext.GDICanvas.TextOut(TextR.Left, TextR.Top + LineH * 2, S3);
+    AContext.GDICanvas.TextOut(TextR.Left, TextR.Top + LineH * 3, S4);
+    AContext.GDICanvas.TextOut(TextR.Left, TextR.Top + LineH * 4, S5);
+    AContext.GDICanvas.Brush.Style := bsSolid;
+  end
+  else if AContext.HasGL then
+  begin
+    AContext.GLCanvas.Brush.Style := bsClear;
+    AContext.GLCanvas.Font.Color := FStyle.CoordOverlayTextColor;
+    AContext.GLCanvas.TextOut(TextR.Left, TextR.Top, S1);
+    AContext.GLCanvas.TextOut(TextR.Left, TextR.Top + LineH * 1, S2);
+    AContext.GLCanvas.TextOut(TextR.Left, TextR.Top + LineH * 2, S3);
+    AContext.GLCanvas.TextOut(TextR.Left, TextR.Top + LineH * 3, S4);
+    AContext.GLCanvas.TextOut(TextR.Left, TextR.Top + LineH * 4, S5);
     AContext.GLCanvas.Brush.Style := bsSolid;
   end;
 end;
@@ -1156,7 +1347,7 @@ var
 begin
   R := ANode.GetScreenBounds(AContext.Zoom, AContext.OffsetX, AContext.OffsetY);
   S := Max(10, Round(AContext.RenderState.ResizeHandleSize * AContext.Zoom));
-  Result := Rect(R.Right - S, R.Bottom - S, R.Right + 1, R.Bottom + 1);
+  Result := Classes.Rect(R.Right - S, R.Bottom - S, R.Right + 1, R.Bottom + 1);
 end;
 
 function TAbstractNodeEditorRenderer.WorldToScreen(WX, WY: single;
@@ -1185,7 +1376,8 @@ begin
     AContext.GDICanvas.Pen.JoinStyle := pjsRound;
     AContext.GDICanvas.Pen.EndCap := pecRound;
     {$ENDIF}
-  end;
+end;
+
 end;
 
 procedure TGDIRenderer.EndFrame(const AContext: TRenderContext);

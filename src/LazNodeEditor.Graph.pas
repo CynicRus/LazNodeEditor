@@ -34,7 +34,8 @@ uses
   LazNodeEditor.LinkRouter,
   LazNodeEditor.GraphIntf,
   LazNodeEditor.GraphCommandIntf,
-  LazNodeEditor.GraphCommands;
+  LazNodeEditor.GraphCommands,
+  LazNodeEditor.SpatialIndex;
 
 type
   TNodeGraph = class;
@@ -64,6 +65,11 @@ type
     FNodeById: specialize TDictionary<string, TCustomNode>;
     FLinkById: specialize TDictionary<string, TNodeLink>;
 
+    FNodeIndex: TSimpleRTree;
+    FLinkIndex: TSimpleRTree;
+    FStructureVersion: QWord;
+    FSpatialVersion: QWord;
+
     procedure DoGraphChanged;
     procedure RemoveLinksToInput(APin: TNodePin);
 
@@ -77,6 +83,11 @@ type
     function GetDefaultLinkDrawStyle: TLinkDrawStyle;
     function GetNodeCount: integer;
     function GetNode(AIndex: integer): TCustomNode;
+
+    function GetNodeWorldBounds(ANode: TCustomNode): TRectF;
+    function GetLinkWorldBounds(ALink: TNodeLink): TRectF;
+    procedure InvalidateSpatial;
+    procedure EnsureSpatialIndex;
   public
     constructor Create;
     destructor Destroy; override;
@@ -90,6 +101,7 @@ type
     procedure AddLink(ALink: TNodeLink);
     procedure RemoveLink(ALink: TNodeLink);
     function NodesContains(ANode: TCustomNode): boolean;
+    function GetNodeRegistry(): TNodeRegistry;
 
     function CheckInvariants(AErrors: TStrings = nil): boolean;
     function IsNodeIdUnique(const AId: string; AExcept: TCustomNode = nil): boolean;
@@ -132,6 +144,14 @@ type
     function NextZOrder: integer;
     procedure BringNodeToFront(ANode: TCustomNode);
     procedure SendNodeToBack(ANode: TCustomNode);
+
+    function StructureVersion: QWord;
+    function QueryNodes(const R: TRectF; AList: TFPList): integer;
+    function QueryLinks(const R: TRectF; AList: TFPList): integer;
+    function QueryNodesAtPoint(const P: TPointF; Radius: single; AList: TFPList): integer;
+    function QueryLinksAtPoint(const P: TPointF; Radius: single; AList: TFPList): integer;
+    procedure NotifyNodeGeometryChanged(ANode: TCustomNode);
+    procedure NotifyLinkGeometryChanged(ALink: TNodeLink);
 
     property Nodes: TNodeDAG read FNodes;
     property Links: TNodeLinkList read FLinks;
@@ -223,6 +243,11 @@ begin
   FNodeById := specialize TDictionary<string, TCustomNode>.Create;
   FLinkById := specialize TDictionary<string, TNodeLink>.Create;
 
+  FNodeIndex := TSimpleRTree.Create(16);
+  FLinkIndex := TSimpleRTree.Create(16);
+  FStructureVersion := 1;
+  FSpatialVersion := 0;
+
   FRegistry.RegisterNodeEx('default', 'Default Node', 'Basic',
     'Generic test node.', 'default,test', TDefaultNode);
 
@@ -251,6 +276,8 @@ begin
   FNodes.Free;
   FNodeById.Free;
   FLinkById.Free;
+  FNodeIndex.Free;
+  FLinkIndex.Free;
   inherited Destroy;
 end;
 
@@ -282,6 +309,8 @@ begin
   FNodes.Add(ANode);
   if Assigned(FNodeById) then
     FNodeById.AddOrSetValue(ANode.Id, ANode);
+
+  InvalidateSpatial;
 
   if Assigned(FOnNodeAdded) then
     FOnNodeAdded(Self, ANode);
@@ -325,6 +354,8 @@ begin
 
   FNodes.Remove(ANode);
 
+  InvalidateSpatial;
+
   Result := True;
   DoGraphChanged;
 end;
@@ -360,6 +391,8 @@ begin
     FOnNodeRemoved(Self, ANode);
 
   FNodes.Remove(ANode);
+
+  InvalidateSpatial;
 
   DoGraphChanged;
 end;
@@ -427,6 +460,8 @@ begin
   if Assigned(FLinkById) then
     FLinkById.AddOrSetValue(ALink.Id, ALink);
 
+  InvalidateSpatial;
+
   if Assigned(FOnLinkAdded) then
     FOnLinkAdded(Self, ALink);
 
@@ -463,11 +498,18 @@ begin
     end;
     DoGraphChanged;
   end;
+
+  InvalidateSpatial;
 end;
 
 function TNodeGraph.NodesContains(ANode: TCustomNode): boolean;
 begin
   Result := FNodes.Contains(ANode);
+end;
+
+function TNodeGraph.GetNodeRegistry(): TNodeRegistry;
+begin
+  result := self.Registry;
 end;
 
 function TNodeGraph.HasLinksBetweenNodes(ANodeA, ANodeB: TCustomNode): boolean;
@@ -933,6 +975,8 @@ begin
     FNodeById.Clear;
   if Assigned(FLinkById) then
     FLinkById.Clear;
+
+  InvalidateSpatial;
   DoGraphChanged;
 end;
 
@@ -1035,6 +1079,7 @@ begin
     Exit;
 
   ANode.ZOrder := NextZOrder;
+  InvalidateSpatial;
   DoGraphChanged;
 end;
 
@@ -1055,6 +1100,7 @@ begin
       Inc(N.ZOrder);
   end;
 
+  InvalidateSpatial;
   DoGraphChanged;
 end;
 
@@ -1190,6 +1236,8 @@ begin
     EndUpdate;
     DoGraphChanged;
   end;
+
+  InvalidateSpatial;
 end;
 
 function TNodeGraph.ValidateGraph: boolean;
@@ -1420,5 +1468,141 @@ begin
   DoGraphChanged;
 end;
 
+function TNodeGraph.GetNodeWorldBounds(ANode: TCustomNode): TRectF;
+begin
+  if ANode = nil then
+    Exit(RectF(0, 0, 0, 0));
+  Result := RectF(ANode.X, ANode.Y, ANode.X + ANode.Width, ANode.Y + ANode.Height);
+end;
+
+function TNodeGraph.GetLinkWorldBounds(ALink: TNodeLink): TRectF;
+var
+  Path: TLinkPath;
+  i, k: integer;
+  P: TPointF;
+
+  procedure IncludePoint(const AP: TPointF);
+  begin
+    if AP.X < Result.Left then Result.Left := AP.X;
+    if AP.Y < Result.Top then Result.Top := AP.Y;
+    if AP.X > Result.Right then Result.Right := AP.X;
+    if AP.Y > Result.Bottom then Result.Bottom := AP.Y;
+  end;
+
+begin
+  Result := RectF(0, 0, 0, 0);
+
+  if (ALink = nil) or (FLinkRouter = nil) then
+    Exit;
+
+  Path := FLinkRouter.GetPaintPath(ALink);
+  if Length(Path.Points) = 0 then
+    Exit;
+
+  if Path.Kind = lpkBezier then
+  begin
+    if Length(Path.Points) < 4 then
+      Exit;
+
+    P := Path.Points[0];
+    Result := RectF(P.X, P.Y, P.X, P.Y);
+
+    for k := 1 to 24 do
+      IncludePoint(CubicBezierPointF(
+        Path.Points[0], Path.Points[1], Path.Points[2], Path.Points[3], k / 24
+      ));
+  end
+  else
+  begin
+    Result := RectF(Path.Points[0].X, Path.Points[0].Y, Path.Points[0].X, Path.Points[0].Y);
+    for i := 1 to High(Path.Points) do
+    begin
+      P := Path.Points[i];
+      IncludePoint(P);
+    end;
+  end;
+
+  InflateRect(Result, 12.0, 12.0);
+end;
+
+procedure TNodeGraph.InvalidateSpatial;
+begin
+  Inc(FStructureVersion);
+  if Assigned(FLinkRouter) then
+    FLinkRouter.InvalidateCache;
+end;
+
+procedure TNodeGraph.EnsureSpatialIndex;
+var
+  i: integer;
+begin
+  if FSpatialVersion = FStructureVersion then
+    Exit;
+
+  FNodeIndex.Clear;
+  for i := 0 to FNodes.Count - 1 do
+    FNodeIndex.Add(FNodes[i], GetNodeWorldBounds(FNodes[i]));
+  FNodeIndex.Rebuild;
+
+  FLinkIndex.Clear;
+  for i := 0 to FLinks.Count - 1 do
+    FLinkIndex.Add(FLinks[i], GetLinkWorldBounds(FLinks[i]));
+  FLinkIndex.Rebuild;
+
+  FSpatialVersion := FStructureVersion;
+end;
+
+function TNodeGraph.StructureVersion: QWord;
+begin
+  Result := FStructureVersion;
+end;
+
+function TNodeGraph.QueryNodes(const R: TRectF; AList: TFPList): integer;
+begin
+  Result := 0;
+  if AList = nil then
+    Exit;
+  EnsureSpatialIndex;
+  AList.Clear;
+  FNodeIndex.Query(R, AList);
+  Result := AList.Count;
+end;
+
+function TNodeGraph.QueryLinks(const R: TRectF; AList: TFPList): integer;
+begin
+  Result := 0;
+  if AList = nil then
+    Exit;
+  EnsureSpatialIndex;
+  AList.Clear;
+  FLinkIndex.Query(R, AList);
+  Result := AList.Count;
+end;
+
+function TNodeGraph.QueryNodesAtPoint(const P: TPointF; Radius: single;
+  AList: TFPList): integer;
+begin
+  Result := QueryNodes(RectF(P.X - Radius, P.Y - Radius, P.X + Radius, P.Y + Radius), AList);
+end;
+
+function TNodeGraph.QueryLinksAtPoint(const P: TPointF; Radius: single;
+  AList: TFPList): integer;
+begin
+  Result := QueryLinks(RectF(P.X - Radius, P.Y - Radius, P.X + Radius, P.Y + Radius), AList);
+end;
+
+procedure TNodeGraph.NotifyNodeGeometryChanged(ANode: TCustomNode);
+begin
+  InvalidateSpatial;
+  if Assigned(FLinkRouter) then
+    FLinkRouter.InvalidateCache;
+end;
+
+procedure TNodeGraph.NotifyLinkGeometryChanged(ALink: TNodeLink);
+begin
+  InvalidateSpatial;
+  if Assigned(FLinkRouter) then
+    FLinkRouter.InvalidateCache;
+end;
 
 end.

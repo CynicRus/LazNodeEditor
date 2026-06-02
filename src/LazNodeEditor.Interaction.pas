@@ -418,20 +418,16 @@ begin
       FMachine.ReconnectLink := Link;
       FMachine.ReconnectMovingFromSide := Editor.IsMouseNearLinkStart(Link, X, Y);
       if FMachine.ReconnectMovingFromSide then
-      begin
-        FMachine.TempFromPin := Link.FromPin;
-        FMachine.ReconnectFixedPin := Link.ToPin;
-      end
+        FMachine.ReconnectFixedPin := Link.ToPin
       else
-      begin
-        FMachine.TempFromPin := Link.ToPin;
         FMachine.ReconnectFixedPin := Link.FromPin;
-      end;
+
+      FMachine.TempFromPin := nil;
       FMachine.TempMousePos := Point(X, Y);
       FMachine.TempStartMousePos := Point(X, Y);
       FMachine.DraggingLink := False;
       Editor.NotifySelectionChanged;
-      FMachine.ChangeState(TReconnectLinkState.Create(FMachine));
+      Editor.RequestRepaint(true);
       System.Exit;
     end;
 
@@ -520,20 +516,10 @@ begin
   FDraggedComment := nil;
   FCommentChildren := nil;
   SetLength(FCommentChildrenOldPositions, 0);
-
-  if Controller.Selection.NodeCount = 0 then Exit;
-
   FDraggedCommentIndex := -1;
-  for i := 0 to Controller.Selection.NodeCount - 1 do
-  begin
-    N := Controller.Selection.GetNode(i);
-    if N.VisualKind = nvComment then
-    begin
-      FDraggedComment := N;
-      FDraggedCommentIndex := i;
-      Break;
-    end;
-  end;
+
+  if Controller.Selection.NodeCount = 0 then
+    Exit;
 
   SetLength(FOldPositions, Controller.Selection.NodeCount);
   for i := 0 to Controller.Selection.NodeCount - 1 do
@@ -542,16 +528,27 @@ begin
     FOldPositions[i] := PointF(N.X, N.Y);
   end;
 
+  if (Controller.Selection.NodeCount = 1) then
+  begin
+    N := Controller.Selection.GetNode(0);
+    if (N <> nil) and (N.VisualKind = nvComment) then
+    begin
+      FDraggedComment := N;
+      FDraggedCommentIndex := 0;
+    end;
+  end;
+
   if FDraggedComment <> nil then
   begin
     FCommentChildren := TCustomNodeList.Create(False);
     for i := 0 to Graph.Nodes.Count - 1 do
     begin
       N := Graph.Nodes[i];
-      if (N <> FDraggedComment) and (N.X >= FDraggedComment.X) and
-        (N.Y >= FDraggedComment.Y) and (N.X + N.Width <=
-        FDraggedComment.X + FDraggedComment.Width) and
-        (N.Y + N.Height <= FDraggedComment.Y + FDraggedComment.Height) then
+      if (N <> FDraggedComment) and
+         (N.X >= FDraggedComment.X) and
+         (N.Y >= FDraggedComment.Y) and
+         (N.X + N.Width <= FDraggedComment.X + FDraggedComment.Width) and
+         (N.Y + N.Height <= FDraggedComment.Y + FDraggedComment.Height) then
         FCommentChildren.Add(N);
     end;
 
@@ -573,7 +570,8 @@ var
   Dx, Dy: single;
   SX, SY: boolean;
 begin
-  if Controller.Selection.NodeCount = 0 then Exit;
+  if Controller.Selection.NodeCount = 0 then
+    Exit;
 
   Dx := (X - FMachine.StartMouseX) / Viewport.Zoom;
   Dy := (Y - FMachine.StartMouseY) / Viewport.Zoom;
@@ -595,24 +593,16 @@ begin
   end
   else
   begin
-    if Controller.Selection.NodeCount > 0 then
+    Editor.ApplyNodeSnap(Dx, Dy, SX, SY);
+
+    for i := 0 to Controller.Selection.NodeCount - 1 do
     begin
-      Dx := (X - FMachine.StartMouseX) / Viewport.Zoom;
-      Dy := (Y - FMachine.StartMouseY) / Viewport.Zoom;
+      N := Controller.Selection.GetNode(i);
+      N.X := FOldPositions[i].X + Dx;
+      N.Y := FOldPositions[i].Y + Dy;
+    end;
 
-      Editor.ApplyNodeSnap(Dx, Dy, SX, SY);
-
-      for i := 0 to Controller.Selection.NodeCount - 1 do
-      begin
-        N := Controller.Selection.GetNode(i);
-        N.X := FOldPositions[i].X + Dx;
-        N.Y := FOldPositions[i].Y + Dy;
-      end;
-
-      OverlayNode := Controller.Selection.GetNode(0);
-    end
-    else
-      OverlayNode := nil;
+    OverlayNode := Controller.Selection.GetNode(0);
   end;
 
   if (ssAlt in Shift) and (OverlayNode <> nil) then

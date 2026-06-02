@@ -42,10 +42,17 @@ type
   TSingleArray = array of single;
 
   TLinkPathCacheEntry = record
-    LinkID: Pointer;
-    Serial: cardinal;
-    Path: TLinkPath;
-  end;
+      LinkID: Pointer;
+      Serial: cardinal;
+      StructureVersion: QWord;
+      FromPos: TPointF;
+      ToPos: TPointF;
+      FromSide: TPinSide;
+      ToSide: TPinSide;
+      Path: TLinkPath;
+    end;
+
+  { TNodeLinkRouter }
 
   TNodeLinkRouter = class
   private
@@ -63,6 +70,8 @@ type
     function IsAxisCompatibleToSide(const A, B: TPointF; ASide: TPinSide): boolean;
     function CanConnectToEndStub(const Prev, EndStub: TPointF; EndSide: TPinSide;
       const Ig1, Ig2: TCustomNode; Margin: single): boolean;
+    function SamePointF(const A, B: TPointF; Eps: single = 0.01): boolean; inline;
+    function IsCacheEntryValid(const Entry: TLinkPathCacheEntry; ALink: TNodeLink): boolean;
 
     function SegmentBlockedByNodes(const A, B: TPointF; const Ig1, Ig2: TCustomNode;
       Margin: single): boolean;
@@ -291,6 +300,47 @@ begin
   Result :=
     IsAxisCompatibleToSide(Prev, EndStub, EndSide) and not
     SegmentBlockedByNodes(Prev, EndStub, Ig1, Ig2, Margin);
+end;
+
+function TNodeLinkRouter.SamePointF(const A, B: TPointF; Eps: single): boolean;
+begin
+  Result := (Abs(A.X - B.X) <= Eps) and (Abs(A.Y - B.Y) <= Eps);
+end;
+
+function TNodeLinkRouter.IsCacheEntryValid(const Entry: TLinkPathCacheEntry;
+  ALink: TNodeLink): boolean;
+var
+  P0, P3: TPointF;
+  V: QWord;
+begin
+  Result := False;
+
+  if ALink = nil then
+    Exit;
+
+  if Entry.LinkID <> Pointer(ALink) then
+    Exit;
+
+  if Entry.Serial <> FSerial then
+    Exit;
+
+  if (ALink.FromPin = nil) or (ALink.ToPin = nil) then
+    Exit;
+
+  P0 := GetPinWorldPos(ALink.FromPin);
+  P3 := GetPinWorldPos(ALink.ToPin);
+
+  if FGraph <> nil then
+    V := FGraph.StructureVersion
+  else
+    V := 0;
+
+  Result :=
+    (Entry.StructureVersion = V) and
+    SamePointF(Entry.FromPos, P0) and
+    SamePointF(Entry.ToPos, P3) and
+    (Entry.FromSide = ALink.FromPin.Side) and
+    (Entry.ToSide = ALink.ToPin.Side);
 end;
 
 function TNodeLinkRouter.SegmentBlockedByNodes(const A, B: TPointF;
@@ -697,7 +747,7 @@ var
   i: integer;
 begin
   for i := 0 to FCacheCount - 1 do
-    if (FCache[i].LinkID = Pointer(ALink)) and (FCache[i].Serial = FSerial) then
+    if IsCacheEntryValid(FCache[i], ALink) then
       Exit(i);
   Result := -1;
 end;
@@ -705,6 +755,8 @@ end;
 function TNodeLinkRouter.GetOrBuildPath(ALink: TNodeLink): TLinkPath;
 var
   Idx: integer;
+  P0, P3: TPointF;
+  V: QWord;
 begin
   Idx := FindCache(ALink);
   if Idx >= 0 then
@@ -714,8 +766,39 @@ begin
 
   if FCacheCount >= Length(FCache) then
     SetLength(FCache, Max(16, FCacheCount * 2));
+
+  if (ALink <> nil) and (ALink.FromPin <> nil) and (ALink.ToPin <> nil) then
+  begin
+    P0 := GetPinWorldPos(ALink.FromPin);
+    P3 := GetPinWorldPos(ALink.ToPin);
+  end
+  else
+  begin
+    P0 := PointF(0, 0);
+    P3 := PointF(0, 0);
+  end;
+
+  if FGraph <> nil then
+    V := FGraph.StructureVersion
+  else
+    V := 0;
+
   FCache[FCacheCount].LinkID := Pointer(ALink);
   FCache[FCacheCount].Serial := FSerial;
+  FCache[FCacheCount].StructureVersion := V;
+  FCache[FCacheCount].FromPos := P0;
+  FCache[FCacheCount].ToPos := P3;
+
+  if (ALink <> nil) and (ALink.FromPin <> nil) then
+    FCache[FCacheCount].FromSide := ALink.FromPin.Side
+  else
+    FCache[FCacheCount].FromSide := psRight;
+
+  if (ALink <> nil) and (ALink.ToPin <> nil) then
+    FCache[FCacheCount].ToSide := ALink.ToPin.Side
+  else
+    FCache[FCacheCount].ToSide := psLeft;
+
   FCache[FCacheCount].Path := Result;
   Inc(FCacheCount);
 end;

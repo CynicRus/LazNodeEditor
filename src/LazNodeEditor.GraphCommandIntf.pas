@@ -26,32 +26,33 @@ unit LazNodeEditor.GraphCommandIntf;
 interface
 
 uses
-  Generics.Collections, Classes,
+  Generics.Collections, Classes, Types,
   LazNodeEditor.Types,
   LazNodeEditor.Nodes;
 
-type  
+type
 
-INodeGraphCommandHost = interface
-  ['{A8D1D8F1-4A47-4B3C-9F3D-0D68D1F4A001}']
-  function FindNodeById(const AId: string): TCustomNode;
-  function FindPinById(const AId: string): TNodePin;
-  function FindLinkById(const AId: string): TNodeLink;
+  INodeGraphCommandHost = interface
+    ['{A8D1D8F1-4A47-4B3C-9F3D-0D68D1F4A001}']
+    function FindNodeById(const AId: string): TCustomNode;
+    function FindPinById(const AId: string): TNodePin;
+    function FindLinkById(const AId: string): TNodeLink;
 
-  function GetLinks: specialize TObjectList<TNodeLink>;
-  function NodesContains(ANode: TCustomNode): boolean;
+    function GetLinks: specialize TObjectList<TNodeLink>;
+    function GetNodeRegistry(): TNodeRegistry;
+    function NodesContains(ANode: TCustomNode): boolean;
 
-  procedure AddNode(ANode: TCustomNode);
-  function DetachNode(ANode: TCustomNode): boolean;
-  procedure RemoveNode(ANode: TCustomNode);
-  procedure AddLink(ALink: TNodeLink);
-  procedure RemoveLink(ALink: TNodeLink);
+    procedure AddNode(ANode: TCustomNode);
+    function DetachNode(ANode: TCustomNode): boolean;
+    procedure RemoveNode(ANode: TCustomNode);
+    procedure AddLink(ALink: TNodeLink);
+    procedure RemoveLink(ALink: TNodeLink);
 
-  procedure GraphChanged;
+    procedure GraphChanged;
 
-  function CaptureJSONText: string;
-  procedure LoadGraphFromJSONText(const S: string);
-end;
+    function CaptureJSONText: string;
+    procedure LoadGraphFromJSONText(const S: string);
+  end;
 
 implementation
 

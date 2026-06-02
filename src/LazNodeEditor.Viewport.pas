@@ -52,6 +52,8 @@ type
     function GetVisibleWorldRect(const AClientWidth, AClientHeight: integer): TRectF;
     function GetPinWorldPosition(APin: TNodePin): TPointF;
     procedure GetLinkBezierWorldPoints(ALink: TNodeLink; out P0, P1, P2, P3: TPointF);
+    procedure ClampToWorldRect(const AWorldRect: TRectF; AClientWidth, AClientHeight: integer;
+  const AMarginWorldX, AMarginWorldY: double);
 
     // Zoom & Pan
     procedure ZoomAt(const AScreenX, AScreenY: integer; AFactor: double);
@@ -156,6 +158,37 @@ begin
 
   P2 := P3;
   P2.X := P2.X - D;
+end;
+
+procedure TNodeViewport.ClampToWorldRect(const AWorldRect: TRectF;
+  AClientWidth, AClientHeight: integer; const AMarginWorldX, AMarginWorldY: double);
+var
+  VW: TRectF;
+  NewLeft, NewTop: double;
+  MinLeft, MaxLeft: double;
+  MinTop, MaxTop: double;
+  ViewW, ViewH: double;
+begin
+  VW := GetVisibleWorldRect(AClientWidth, AClientHeight);
+  ViewW := VW.Right - VW.Left;
+  ViewH := VW.Bottom - VW.Top;
+
+  MinLeft := AWorldRect.Left - AMarginWorldX;
+  MaxLeft := AWorldRect.Right + AMarginWorldX - ViewW;
+
+  MinTop := AWorldRect.Top - AMarginWorldY;
+  MaxTop := AWorldRect.Bottom + AMarginWorldY - ViewH;
+
+  if MaxLeft < MinLeft then
+    MaxLeft := MinLeft;
+  if MaxTop < MinTop then
+    MaxTop := MinTop;
+
+  NewLeft := EnsureRange(VW.Left, MinLeft, MaxLeft);
+  NewTop := EnsureRange(VW.Top, MinTop, MaxTop);
+
+  FOffsetX := -NewLeft * FZoom;
+  FOffsetY := -NewTop * FZoom;
 end;
 
 procedure TNodeViewport.ZoomAt(const AScreenX, AScreenY: integer; AFactor: double);

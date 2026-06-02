@@ -26,7 +26,7 @@ unit LazNodeEditor.GraphIntf;
 interface
 
 uses
-  Classes,
+  Classes, Types,
   LazNodeEditor.Types,
   LazNodeEditor.Nodes;
 
@@ -37,38 +37,24 @@ type
     function GetNodeCount: integer;
     function GetNode(AIndex: integer): TCustomNode;
 
+    function StructureVersion: QWord;
+    function QueryNodes(const R: TRectF; AList: TFPList): integer;
+    function QueryLinks(const R: TRectF; AList: TFPList): integer;
+    function QueryNodesAtPoint(const P: TPointF; Radius: single;
+      AList: TFPList): integer;
+    function QueryLinksAtPoint(const P: TPointF; Radius: single;
+      AList: TFPList): integer;
+    procedure NotifyNodeGeometryChanged(ANode: TCustomNode);
+    procedure NotifyLinkGeometryChanged(ALink: TNodeLink);
+
     property DefaultLinkDrawStyle: TLinkDrawStyle read GetDefaultLinkDrawStyle;
     property NodeCount: integer read GetNodeCount;
     property Nodes[AIndex: integer]: TCustomNode read GetNode;
   end;
 
-  { TNoRefCountObject }
 
-  TNoRefCountObject = class(TObject, IInterface)
-  protected
-    function QueryInterface(constref IID: TGUID; out Obj): HResult; {$IFDEF MSWINDOWS}stdcall;{$ELSE}cdecl;{$ENDIF}
-    function _AddRef: LongInt; {$IFDEF MSWINDOWS}stdcall;{$ELSE}cdecl;{$ENDIF}
-    function _Release: LongInt; {$IFDEF MSWINDOWS}stdcall;{$ELSE}cdecl;{$ENDIF}
-  end;
 
 implementation
 
-function TNoRefCountObject.QueryInterface(constref IID: TGUID; out Obj): HResult; {$IFDEF MSWINDOWS}stdcall;{$ELSE}cdecl;{$ENDIF}
-begin
-  if GetInterface(IID, Obj) then
-    Result := 0
-  else
-    Result := LongInt($80004002);
-end;
-
-function TNoRefCountObject._AddRef: LongInt; {$IFDEF MSWINDOWS}stdcall;{$ELSE}cdecl;{$ENDIF}
-begin
-  Result := -1;
-end;
-
-function TNoRefCountObject._Release: LongInt; {$IFDEF MSWINDOWS}stdcall;{$ELSE}cdecl;{$ENDIF}
-begin
-  Result := -1;
-end;
 
 end.
