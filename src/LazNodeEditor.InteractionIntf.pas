@@ -42,6 +42,8 @@ type
     function ScreenToWorld(SX, SY: integer): TPointF;
     function IsMouseNearLinkStart(ALink: TNodeLink; SX, SY: integer): boolean;
     function IsLinkInsideWorldRect(ALink: TNodeLink; const R: TRectF): boolean;
+    procedure UpdateDragCoordinateOverlay(ANode: TCustomNode;
+      AWorldX, AWorldY, ADeltaX, ADeltaY: single; AVisible: boolean);
 
     // Selection
     procedure SelectNodeInternal(ANode: TCustomNode; AAppend: boolean);

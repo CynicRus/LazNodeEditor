@@ -39,6 +39,7 @@ uses
   LazNodeEditor.InteractionIntf,
   LazNodeEditor.Interaction,
   LazNodeEditor.LinkRouter,
+  LazNodeEditor.ScrollBars,
   GL2DCanvas, LazNodeEditor.GLCanvasProxy;
 
 type
@@ -114,6 +115,16 @@ type
     FGuideSnapX: single;
     FGuideSnapY: single;
 
+    FShowDragCoordinates: boolean;
+    FDragCoordNode: TCustomNode;
+    FDragCoordWorldX: single;
+    FDragCoordWorldY: single;
+    FDragCoordDeltaX: single;
+    FDragCoordDeltaY: single;
+
+    FReadOnly: boolean;
+    FScrollBars: TNodeEditorScrollBars;
+
     FPaintNodesSorted: TList;
     FPaintNodesDirty: boolean;
     FLastPaintTick: QWord;
@@ -127,6 +138,8 @@ type
     FOnDrawLink: TRenderLinkDrawEvent;
     FOnDrawGrid: TRenderGridDrawEvent;
     FOnDrawSnapGuides: TRenderSnapGuidesDrawEvent;
+    FOnDrawScrollBars: TRenderScrollBarsDrawEvent;
+    FOnDrawDragCoordinates: TRenderDragCoordinatesDrawEvent;
 
     FOnSelectionChanged: TNodeSelectionChangedEvent;
     FOnZoomChanged: TEditorZoomChangedEvent;
@@ -136,6 +149,20 @@ type
     FOnLinkClick: TNodeLinkEvent;
     FOnBeforeConnectPins: TEditorConnectPinsEvent;
     FOnAfterConnectPins: TEditorPinsConnectedEvent;
+
+    procedure SetReadOnly(AValue: boolean);
+    procedure SetScrollBarsMode(AValue: TScrollBarsMode);
+    procedure SetOnDrawScrollBars(AValue: TRenderScrollBarsDrawEvent);
+    procedure SetOnDrawDragCoordinates(AValue: TRenderDragCoordinatesDrawEvent);
+
+    function GetScrollBarsVisible: boolean;
+    procedure SetScrollBarsVisible(AValue: boolean);
+    function GetScrollBarThickness: integer;
+    procedure SetScrollBarThickness(AValue: integer);
+    function GetScrollBarsMode: TScrollBarsMode;
+
+    function GetHorizontalScrollEnabled: boolean; inline;
+    function GetVerticalScrollEnabled: boolean; inline;
 
     function GetLinkDrawStyle: TLinkDrawStyle;
     function GetRendererStyle: TRenderStyle;
@@ -209,6 +236,16 @@ type
     procedure SelectPinInternal(APin: TNodePin; AAppend: boolean);
     procedure TogglePinSelection(APin: TNodePin);
     procedure ClearPinSelection;
+
+    procedure UpdateDragCoordinateOverlay(ANode: TCustomNode;
+      AWorldX, AWorldY, ADeltaX, ADeltaY: single; AVisible: boolean);
+    procedure UpdateScrollBars;
+    function GetGraphBounds(out R: TRectF): boolean;
+    function HitTestHScrollThumb(X, Y: integer): boolean;
+    function HitTestVScrollThumb(X, Y: integer): boolean;
+    function HitTestHScrollTrack(X, Y: integer): boolean;
+    function HitTestVScrollTrack(X, Y: integer): boolean;
+    procedure ScrollToOffset(AOffsetX, AOffsetY: double);
 
     procedure NotifySelectionChanged;
 
@@ -335,6 +372,24 @@ type
     property MinTitleZoom: double read FMinTitleZoom write FMinTitleZoom;
     property MinPinLabelZoom: double read FMinPinLabelZoom write FMinPinLabelZoom;
     property MinDetailLevelZoom: double read FMinDetailZoom write FMinDetailZoom;
+    property LinkDrawStyle: TLinkDrawStyle read GetLinkDrawStyle
+      write SetLinkDrawStyle default ldsBezier;
+
+    property ScrollBarsVisible: boolean
+      read GetScrollBarsVisible write SetScrollBarsVisible default True;
+    property ScrollBarThickness: integer
+      read GetScrollBarThickness write SetScrollBarThickness default 12;
+
+    property ReadOnly: boolean read FReadOnly write SetReadOnly default False;
+
+    property ScrollBarsMode: TScrollBarsMode
+      read GetScrollBarsMode write SetScrollBarsMode default sbmAuto;
+
+    property OnDrawScrollBars: TRenderScrollBarsDrawEvent
+      read FOnDrawScrollBars write SetOnDrawScrollBars;
+
+    property OnDrawDragCoordinates: TRenderDragCoordinatesDrawEvent
+      read FOnDrawDragCoordinates write SetOnDrawDragCoordinates;
 
     property OnSelectionChanged: TNodeSelectionChangedEvent
       read FOnSelectionChanged write FOnSelectionChanged;
@@ -355,8 +410,7 @@ type
       read FOnBeforeConnectPins write FOnBeforeConnectPins;
     property OnAfterConnectPins: TEditorPinsConnectedEvent
       read FOnAfterConnectPins write FOnAfterConnectPins;
-    property LinkDrawStyle: TLinkDrawStyle read GetLinkDrawStyle
-      write SetLinkDrawStyle default ldsBezier;
+
 
   end;
 
@@ -516,6 +570,12 @@ begin
   FGLControl := nil;
   FGLCanvasProxy := nil;
 
+  FShowDragCoordinates := False;
+  FDragCoordNode := nil;
+
+  FReadOnly := False;
+  FScrollBars := TNodeEditorScrollBars.Create;
+
   UpdatePinsConnectedState;
   BuildContextMenu;
 end;
@@ -528,6 +588,7 @@ begin
   FViewport.Free;
   FRenderContext.Free;
   FGraph.Free;
+  FScrollBars.Free;
   FreeAndNil(FGLControl);
   FreeAndNil(FGLCanvasProxy);
   inherited Destroy;
@@ -602,9 +663,29 @@ begin
 end;
 
 procedure TLazNodeEditor.PopupContextMenu(AScreenX, AScreenY: integer);
+var
+  i: integer;
+  Item: TMenuItem;
 begin
-  if Assigned(FEditorPopupMenu) then
-    FEditorPopupMenu.PopUp(AScreenX, AScreenY);
+  if not Assigned(FEditorPopupMenu) then
+    Exit;
+
+  for i := 0 to FEditorPopupMenu.Items.Count - 1 do
+  begin
+    Item := FEditorPopupMenu.Items[i];
+    if Item = nil then
+      Continue;
+
+    if SameText(Item.Caption, 'Copy') or
+       SameText(Item.Caption, 'Search Node...') then
+      Item.Enabled := True
+    else if Item.Caption = '-' then
+      Item.Enabled := True
+    else
+      Item.Enabled := not FReadOnly;
+  end;
+
+  FEditorPopupMenu.PopUp(AScreenX, AScreenY);
 end;
 
 function TLazNodeEditor.GetSnapToGrid(): boolean;
@@ -763,8 +844,11 @@ end;
 procedure TLazNodeEditor.Resize;
 begin
   inherited Resize;
+  UpdateScrollBars;
   if Assigned(FGLControl) then
-    FGLControl.Invalidate;
+    FGLControl.Invalidate
+  else
+    Invalidate;
 end;
 
 function TLazNodeEditor.ResolveShortcut(Key: word; Shift: TShiftState): TEditorAction;
@@ -1319,6 +1403,202 @@ begin
     FController.PinSelection.Clear;
 end;
 
+procedure TLazNodeEditor.UpdateDragCoordinateOverlay(ANode: TCustomNode;
+  AWorldX, AWorldY, ADeltaX, ADeltaY: single; AVisible: boolean);
+begin
+  FShowDragCoordinates := AVisible;
+  FDragCoordNode := ANode;
+  FDragCoordWorldX := AWorldX;
+  FDragCoordWorldY := AWorldY;
+  FDragCoordDeltaX := ADeltaX;
+  FDragCoordDeltaY := ADeltaY;
+end;
+
+procedure TLazNodeEditor.SetReadOnly(AValue: boolean);
+begin
+  if FReadOnly = AValue then
+    Exit;
+  FReadOnly := AValue;
+
+  if FReadOnly then
+  begin
+    FInteraction.CancelCurrentOperation;
+    if Assigned(FScrollBars) then
+      FScrollBars.Reset;
+    MouseCapture := False;
+  end;
+
+  Invalidate;
+end;
+
+procedure TLazNodeEditor.SetScrollBarsMode(AValue: TScrollBarsMode);
+begin
+  if not Assigned(FScrollBars) then
+    Exit;
+  if FScrollBars.Mode = AValue then
+    Exit;
+  FScrollBars.Mode := AValue;
+  UpdateScrollBars;
+  Invalidate;
+end;
+
+procedure TLazNodeEditor.SetOnDrawScrollBars(AValue: TRenderScrollBarsDrawEvent);
+begin
+  if FOnDrawScrollBars = AValue then
+    Exit;
+  FOnDrawScrollBars := AValue;
+end;
+
+procedure TLazNodeEditor.SetOnDrawDragCoordinates(AValue: TRenderDragCoordinatesDrawEvent);
+begin
+  if FOnDrawDragCoordinates = AValue then
+    Exit;
+  FOnDrawDragCoordinates := AValue;
+end;
+
+function TLazNodeEditor.GetScrollBarsVisible: boolean;
+begin
+  Result := Assigned(FScrollBars) and FScrollBars.Visible;
+end;
+
+procedure TLazNodeEditor.SetScrollBarsVisible(AValue: boolean);
+begin
+  if not Assigned(FScrollBars) then
+    Exit;
+  if FScrollBars.Visible = AValue then
+    Exit;
+  FScrollBars.Visible := AValue;
+  UpdateScrollBars;
+  Invalidate;
+end;
+
+function TLazNodeEditor.GetScrollBarThickness: integer;
+begin
+  if Assigned(FScrollBars) then
+    Result := FScrollBars.Thickness
+  else
+    Result := 12;
+end;
+
+procedure TLazNodeEditor.SetScrollBarThickness(AValue: integer);
+begin
+  if not Assigned(FScrollBars) then
+    Exit;
+  AValue := EnsureRange(AValue, 8, 64);
+  if FScrollBars.Thickness = AValue then
+    Exit;
+  FScrollBars.Thickness := AValue;
+  UpdateScrollBars;
+  Invalidate;
+end;
+
+function TLazNodeEditor.GetScrollBarsMode: TScrollBarsMode;
+begin
+  if Assigned(FScrollBars) then
+    Result := FScrollBars.Mode
+  else
+    Result := sbmAuto;
+end;
+
+function TLazNodeEditor.GetHorizontalScrollEnabled: boolean; inline;
+begin
+  Result := Assigned(FScrollBars) and
+    (FScrollBars.Mode in [sbmHorizontal, sbmBoth, sbmAuto]);
+end;
+
+function TLazNodeEditor.GetVerticalScrollEnabled: boolean; inline;
+begin
+  Result := Assigned(FScrollBars) and
+    (FScrollBars.Mode in [sbmVertical, sbmBoth, sbmAuto]);
+end;
+
+procedure TLazNodeEditor.UpdateScrollBars;
+var
+  GB: TRectF;
+  HasGB: boolean;
+begin
+  if not Assigned(FScrollBars) then
+    Exit;
+
+  HasGB := GetGraphBounds(GB);
+  FScrollBars.Update(FViewport, GB, HasGB, ClientWidth, ClientHeight);
+end;
+
+function TLazNodeEditor.GetGraphBounds(out R: TRectF): boolean;
+var
+  i: integer;
+  N: TCustomNode;
+  First: boolean;
+  L, T, RR, B, M: single;
+begin
+  Result := False;
+  R := RectF(0, 0, 0, 0);
+
+  if (FGraph = nil) or (FGraph.Nodes.Count = 0) then
+    Exit;
+
+  First := True;
+  for i := 0 to FGraph.Nodes.Count - 1 do
+  begin
+    N := TCustomNode(FGraph.Nodes[i]);
+    if N = nil then
+      Continue;
+
+    L := N.X;
+    T := N.Y;
+    RR := N.X + N.Width;
+    B := N.Y + N.Height;
+
+    if First then
+    begin
+      R := RectF(L, T, RR, B);
+      First := False;
+    end
+    else
+    begin
+      if L < R.Left then R.Left := L;
+      if T < R.Top then R.Top := T;
+      if RR > R.Right then R.Right := RR;
+      if B > R.Bottom then R.Bottom := B;
+    end;
+  end;
+
+  if not First then
+  begin
+    M := 200 / Max(FViewport.Zoom, 0.001);
+    InflateRect(R, M, M);
+    Result := True;
+  end;
+end;
+
+function TLazNodeEditor.HitTestHScrollThumb(X, Y: integer): boolean;
+begin
+  Result := Assigned(FScrollBars) and FScrollBars.HitTestHThumb(X, Y);
+end;
+
+function TLazNodeEditor.HitTestVScrollThumb(X, Y: integer): boolean;
+begin
+  Result := Assigned(FScrollBars) and FScrollBars.HitTestVThumb(X, Y);
+end;
+
+function TLazNodeEditor.HitTestHScrollTrack(X, Y: integer): boolean;
+begin
+  Result := Assigned(FScrollBars) and FScrollBars.HitTestHTrack(X, Y);
+end;
+
+function TLazNodeEditor.HitTestVScrollTrack(X, Y: integer): boolean;
+begin
+  Result := Assigned(FScrollBars) and FScrollBars.HitTestVTrack(X, Y);
+end;
+
+procedure TLazNodeEditor.ScrollToOffset(AOffsetX, AOffsetY: double);
+begin
+  FViewport.OffsetX := AOffsetX;
+  FViewport.OffsetY := AOffsetY;
+  UpdateScrollBars;
+  Invalidate;
+end;
+
 procedure TLazNodeEditor.SelectPinInternal(APin: TNodePin; AAppend: boolean);
 begin
   if FController.PinSelection <> nil then
@@ -1516,6 +1796,7 @@ var
   P1, P2, FromPin, ToPin: TNodePin;
   Allow: boolean;
 begin
+  if FReadOnly then Exit;
   if FController.PinSelection.Count <> 2 then Exit;
   P1 := FController.PinSelection.GetPin(0);
   P2 := FController.PinSelection.GetPin(1);
@@ -1646,11 +1927,49 @@ begin
   FRenderContext.DraggingNode := FInteraction.IsDraggingNode;
   FRenderContext.DrawResizeHandles := True;
 
+  UpdateScrollBars;
+
+  FRenderContext.ShowDragCoordinates := FShowDragCoordinates;
+  FRenderContext.DragCoordNode := FDragCoordNode;
+  FRenderContext.DragCoordWorldX := FDragCoordWorldX;
+  FRenderContext.DragCoordWorldY := FDragCoordWorldY;
+  FRenderContext.DragCoordDeltaX := FDragCoordDeltaX;
+  FRenderContext.DragCoordDeltaY := FDragCoordDeltaY;
+
+  FRenderContext.ShowScrollBars := Assigned(FScrollBars) and FScrollBars.Visible and
+    (FScrollBars.HVisible or FScrollBars.VVisible);
+  FRenderContext.HScrollVisible := Assigned(FScrollBars) and FScrollBars.HVisible;
+  FRenderContext.VScrollVisible := Assigned(FScrollBars) and FScrollBars.VVisible;
+  if Assigned(FScrollBars) then
+  begin
+    FRenderContext.HScrollRect := FScrollBars.HThumbRect;
+    FRenderContext.VScrollRect := FScrollBars.VThumbRect;
+    FRenderContext.HScrollTrackRect := FScrollBars.HTrackRect;
+    FRenderContext.VScrollTrackRect := FScrollBars.VTrackRect;
+    FRenderContext.HScrollHot := FScrollBars.HHot;
+    FRenderContext.VScrollHot := FScrollBars.VHot;
+    FRenderContext.HScrollActive := FScrollBars.HDragging;
+    FRenderContext.VScrollActive := FScrollBars.VDragging;
+  end
+  else
+  begin
+    FRenderContext.HScrollRect := Rect(0, 0, 0, 0);
+    FRenderContext.VScrollRect := Rect(0, 0, 0, 0);
+    FRenderContext.HScrollTrackRect := Rect(0, 0, 0, 0);
+    FRenderContext.VScrollTrackRect := Rect(0, 0, 0, 0);
+    FRenderContext.HScrollHot := False;
+    FRenderContext.VScrollHot := False;
+    FRenderContext.HScrollActive := False;
+    FRenderContext.VScrollActive := False;
+  end;
+
   FRenderContext.OnDrawNode := FOnDrawNode;
   FRenderContext.OnDrawPin := FOnDrawPin;
   FRenderContext.OnDrawLink := FOnDrawLink;
   FRenderContext.OnDrawGrid := FOnDrawGrid;
   FRenderContext.OnDrawSnapGuides := FOnDrawSnapGuides;
+  FRenderContext.OnDrawScrollBars := FOnDrawScrollBars;
+  FRenderContext.OnDrawDragCoordinates := FOnDrawDragCoordinates;
 end;
 
 procedure TLazNodeEditor.Paint;
@@ -1662,22 +1981,101 @@ end;
 
 procedure TLazNodeEditor.MouseDown(Button: TMouseButton; Shift: TShiftState;
   X, Y: integer);
+var
+  GB: TRectF;
+  HasGB: boolean;
 begin
   inherited MouseDown(Button, Shift, X, Y);
   SetFocus;
+
+  UpdateScrollBars;
+  HasGB := GetGraphBounds(GB);
+
+  if Button = mbLeft then
+  begin
+    if Assigned(FScrollBars) and
+       FScrollBars.MouseDown(FViewport, GB, HasGB, ClientWidth, ClientHeight, X, Y) then
+    begin
+      MouseCapture := True;
+      Invalidate;
+      Exit;
+    end;
+
+    if not FReadOnly then
+    begin
+      if Assigned(FScrollBars) and
+         FScrollBars.ScrollPageToClick(FViewport, GB, HasGB, ClientWidth, ClientHeight, X, Y) then
+      begin
+        Invalidate;
+        Exit;
+      end;
+    end;
+  end;
+
+  if FReadOnly then
+    Exit;
+
   FInteraction.MouseDown(Button, Shift, X, Y);
 end;
 
 procedure TLazNodeEditor.MouseMove(Shift: TShiftState; X, Y: integer);
+var
+  GB: TRectF;
+  HasGB: boolean;
+  NeedInvalidate: boolean;
 begin
   inherited MouseMove(Shift, X, Y);
+
+  UpdateScrollBars;
+  HasGB := GetGraphBounds(GB);
+
+  if Assigned(FScrollBars) then
+  begin
+    NeedInvalidate := False;
+
+    if FScrollBars.UpdateHotState(X, Y) then
+      NeedInvalidate := True;
+
+    if FScrollBars.MouseMove(FViewport, GB, HasGB, ClientWidth, ClientHeight,
+      X, Y, NeedInvalidate) then
+    begin
+      if NeedInvalidate then
+        Invalidate;
+      Exit;
+    end;
+
+    if NeedInvalidate then
+      Invalidate;
+  end;
+
+  if FReadOnly then
+    Exit;
+
   FInteraction.MouseMove(Shift, X, Y);
 end;
 
 procedure TLazNodeEditor.MouseUp(Button: TMouseButton; Shift: TShiftState;
   X, Y: integer);
+var
+  NeedInvalidate: boolean;
 begin
   inherited MouseUp(Button, Shift, X, Y);
+
+  if Button = mbLeft then
+  begin
+    if Assigned(FScrollBars) and FScrollBars.MouseUp(NeedInvalidate) then
+    begin
+      MouseCapture := False;
+      UpdateScrollBars;
+      if NeedInvalidate then
+        Invalidate;
+      Exit;
+    end;
+  end;
+
+  if FReadOnly then
+    Exit;
+
   FInteraction.MouseUp(Button, Shift, X, Y);
 end;
 
@@ -1706,6 +2104,30 @@ begin
   inherited KeyDown(Key, Shift);
 
   AAction := ResolveShortcut(Key, Shift);
+
+  if FReadOnly then
+  begin
+    case AAction of
+      eaFrame, eaFrameSelected:
+        begin
+          if ExecuteEditorAction(AAction) then
+          begin
+            Key := 0;
+            Exit;
+          end;
+        end;
+      else
+        begin
+          if Key = VK_ESCAPE then
+          begin
+            FInteraction.CancelCurrentOperation;
+            Key := 0;
+          end;
+          Exit;
+        end;
+    end;
+  end;
+
   if ExecuteEditorAction(AAction) then
   begin
     Key := 0;
@@ -1789,6 +2211,7 @@ end;
 
 procedure TLazNodeEditor.AddNode(ANode: TCustomNode);
 begin
+  if FReadOnly then Exit;
   if ANode = nil then Exit;
   FController.AddNode(ANode);
   Invalidate;
@@ -1796,6 +2219,7 @@ end;
 
 procedure TLazNodeEditor.RemoveNode(ANode: TCustomNode);
 begin
+  if FReadOnly then Exit;
   if ANode = nil then Exit;
   FController.RemoveNode(ANode);
   UpdatePinsConnectedState;
@@ -1804,6 +2228,7 @@ end;
 
 procedure TLazNodeEditor.RemoveLink(ALink: TNodeLink);
 begin
+  if FReadOnly then Exit;
   if ALink = nil then Exit;
   FController.RemoveLink(ALink);
   UpdatePinsConnectedState;
@@ -1812,6 +2237,7 @@ end;
 
 procedure TLazNodeEditor.Clear;
 begin
+  if FReadOnly then Exit;
   FController.Clear;
   UpdatePinsConnectedState;
   ResetStateAfterGraphReload;
@@ -1827,6 +2253,7 @@ end;
 
 procedure TLazNodeEditor.DeleteSelection;
 begin
+  if FReadOnly then Exit;
   FController.DeleteSelection;
   SyncControllerSelectionToView;
   Invalidate;
@@ -1930,6 +2357,7 @@ end;
 
 procedure TLazNodeEditor.Undo;
 begin
+  if FReadOnly then Exit;
   FController.Undo;
   UpdatePinsConnectedState;
   ResetStateAfterGraphReload;
@@ -1938,6 +2366,7 @@ end;
 
 procedure TLazNodeEditor.Redo;
 begin
+  if FReadOnly then Exit;
   FController.Redo;
   UpdatePinsConnectedState;
   ResetStateAfterGraphReload;
@@ -1951,6 +2380,7 @@ end;
 
 procedure TLazNodeEditor.PasteFromClipboard;
 begin
+  if FReadOnly then Exit;
   FController.PasteFromClipboard(
     SnapWorldValue(FContextWorldPos.X), SnapWorldValue(FContextWorldPos.Y));
   SyncControllerSelectionToView;
@@ -1961,6 +2391,7 @@ procedure TLazNodeEditor.DuplicateSelection;
 var
   W: TPointF;
 begin
+  if FReadOnly then Exit;
   W := FViewport.ScreenToWorld(ClientWidth div 2, ClientHeight div 2);
   FController.DuplicateSelection(SnapWorldValue(W.X + 25), SnapWorldValue(W.Y + 25));
   SyncControllerSelectionToView;
@@ -1977,6 +2408,7 @@ procedure TLazNodeEditor.LoadFromJSONText(const S: string);
 var
   Z, OX, OY: double;
 begin
+  if FReadOnly then Exit;
   if Trim(S) = '' then Exit;
   FController.LoadFromJSONText(S, Z, OX, OY);
   FViewport.Zoom := Z;
@@ -1997,6 +2429,7 @@ procedure TLazNodeEditor.LoadFromFile(const AFileName: string);
 var
   Z, OX, OY: double;
 begin
+  if FReadOnly then Exit;
   FController.LoadFromFile(AFileName, Z, OX, OY);
   FViewport.Zoom := Z;
   FViewport.OffsetX := OX;
@@ -2014,6 +2447,7 @@ end;
 function TLazNodeEditor.AddInputPinToNode(ANode: TCustomNode;
   const AName, ADataType: string; AKind: TPinKind): TNodePin;
 begin
+  if FReadOnly then Exit(nil);
   Result := FController.AddInputPinToNode(ANode, AName, ADataType, AKind);
   if (Result <> nil) and Assigned(FOnNodeChanged) then
     FOnNodeChanged(Self, ANode);
@@ -2023,6 +2457,7 @@ end;
 function TLazNodeEditor.AddOutputPinToNode(ANode: TCustomNode;
   const AName, ADataType: string; AKind: TPinKind): TNodePin;
 begin
+  if FReadOnly then Exit(nil);
   Result := FController.AddOutputPinToNode(ANode, AName, ADataType, AKind);
   if (Result <> nil) and Assigned(FOnNodeChanged) then
     FOnNodeChanged(Self, ANode);
@@ -2033,6 +2468,7 @@ function TLazNodeEditor.RemovePinFromNode(APin: TNodePin): boolean;
 var
   N: TCustomNode;
 begin
+  if FReadOnly then Exit(False);
   N := nil;
   if APin <> nil then
     N := TCustomNode(APin.OwnerNode);

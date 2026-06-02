@@ -40,6 +40,14 @@ type
     rbOpenGL2D
     );
 
+  TScrollBarsMode = (
+    sbmNone,
+    sbmHorizontal,
+    sbmVertical,
+    sbmBoth,
+    sbmAuto
+    );
+
   TRenderCanvasKind = (
     rckNone,
     rckGDI,
@@ -66,9 +74,23 @@ type
     GuideSnapXActive, GuideSnapYActive: boolean; GuideSnapX, GuideSnapY: single;
     Zoom, OffsetX, OffsetY: double; var AHandled: boolean) of object;
 
+  TRenderDragCoordinatesDrawEvent = procedure(Sender: TObject;
+    Canvas: TCanvas; ANode: TCustomNode; ScreenX, ScreenY: integer;
+    AWorldX, AWorldY, ADeltaX, ADeltaY: single; Zoom, OffsetX, OffsetY: double;
+    var AHandled: boolean) of object;
+
+  TRenderScrollBarsDrawEvent = procedure(Sender: TObject; Canvas: TCanvas;
+    ShowHorizontal, ShowVertical: boolean; const HThumbRect, VThumbRect: TRect;
+    const HTrackRect, VTrackRect: TRect; var AHandled: boolean) of object;
+
+  { TRenderStyle }
+
   TRenderStyle = class(TPersistent)
   private
     FBackgroundColor: TColor;
+    FCoordOverlayBackground: TColor;
+    FCoordOverlayBorderColor: TColor;
+    FCoordOverlayTextColor: TColor;
 
     FGridVisible: boolean;
     FGridSize: integer;
@@ -90,6 +112,12 @@ type
 
     FResizeHandleBrushColor: TColor;
     FResizeHandlePenColor: TColor;
+
+    FScrollBarTrackColor: TColor;
+    FScrollBarThumbColor: TColor;
+    FScrollBarBorderColor: TColor;
+    FScrollBarHoverColor: TColor;
+    FScrollBarActiveColor: TColor;
 
     procedure SetDefaults;
   public
@@ -122,10 +150,28 @@ type
     property BoxSelectWidth: integer read FBoxSelectWidth
       write FBoxSelectWidth default 1;
 
+    property CoordOverlayTextColor: TColor
+      read FCoordOverlayTextColor write FCoordOverlayTextColor default clWhite;
+    property CoordOverlayBackground: TColor
+      read FCoordOverlayBackground write FCoordOverlayBackground default $00303030;
+    property CoordOverlayBorderColor: TColor
+      read FCoordOverlayBorderColor write FCoordOverlayBorderColor default clSilver;
+
     property ResizeHandleBrushColor: TColor
       read FResizeHandleBrushColor write FResizeHandleBrushColor default clGray;
     property ResizeHandlePenColor: TColor read FResizeHandlePenColor
       write FResizeHandlePenColor default clBlack;
+
+    property ScrollBarTrackColor: TColor read FScrollBarTrackColor
+      write FScrollBarTrackColor default $00D8D8D8;
+    property ScrollBarThumbColor: TColor read FScrollBarThumbColor
+      write FScrollBarThumbColor default $00888888;
+    property ScrollBarBorderColor: TColor read FScrollBarBorderColor
+      write FScrollBarBorderColor default $00606060;
+    property ScrollBarHoverColor: TColor read FScrollBarHoverColor
+      write FScrollBarHoverColor default $009A9A9A;
+    property ScrollBarActiveColor: TColor read FScrollBarActiveColor
+      write FScrollBarActiveColor default $00707070;
   end;
 
   TRenderContext = class
@@ -163,11 +209,32 @@ type
     DraggingNode: boolean;
     DrawResizeHandles: boolean;
 
+    ShowDragCoordinates: boolean;
+    DragCoordNode: TCustomNode;
+    DragCoordWorldX: single;
+    DragCoordWorldY: single;
+    DragCoordDeltaX: single;
+    DragCoordDeltaY: single;
+
+    ShowScrollBars: boolean;
+    HScrollVisible: boolean;
+    VScrollVisible: boolean;
+    HScrollRect: TRect;
+    VScrollRect: TRect;
+    HScrollTrackRect: TRect;
+    VScrollTrackRect: TRect;
+    HScrollHot: boolean;
+    VScrollHot: boolean;
+    HScrollActive: boolean;
+    VScrollActive: boolean;
+
     OnDrawNode: TRenderNodeDrawEvent;
     OnDrawPin: TRenderPinDrawEvent;
     OnDrawLink: TRenderLinkDrawEvent;
     OnDrawGrid: TRenderGridDrawEvent;
     OnDrawSnapGuides: TRenderSnapGuidesDrawEvent;
+    OnDrawDragCoordinates: TRenderDragCoordinatesDrawEvent;
+    OnDrawScrollBars: TRenderScrollBarsDrawEvent;
 
     function HasGDI: boolean; inline;
     function HasGL: boolean; inline;
@@ -219,6 +286,9 @@ type
     procedure DrawBoxSelect(const AContext: TRenderContext); virtual;
     procedure DrawSnapGuides(const AContext: TRenderContext); virtual;
     procedure DrawResizeHandles(const AContext: TRenderContext); virtual;
+
+    procedure DrawDragCoordinates(const AContext: TRenderContext); virtual;
+    procedure DrawScrollBars(const AContext: TRenderContext); virtual;
 
     procedure ResetCanvasState(const AContext: TRenderContext); virtual;
 
@@ -304,8 +374,18 @@ begin
   FBoxSelectStyle := psDash;
   FBoxSelectWidth := 1;
 
+  FCoordOverlayTextColor := clWhite;
+  FCoordOverlayBackground := $00303030;
+  FCoordOverlayBorderColor := clSilver;
+
   FResizeHandleBrushColor := clGray;
   FResizeHandlePenColor := clBlack;
+
+  FScrollBarTrackColor := $00D8D8D8;
+  FScrollBarThumbColor := $00888888;
+  FScrollBarBorderColor := $00606060;
+  FScrollBarHoverColor := $009A9A9A;
+  FScrollBarActiveColor := $00707070;
 end;
 
 procedure TRenderStyle.Assign(Source: TPersistent);
@@ -336,8 +416,18 @@ begin
     FBoxSelectStyle := S.FBoxSelectStyle;
     FBoxSelectWidth := S.FBoxSelectWidth;
 
+    FCoordOverlayTextColor := S.FCoordOverlayTextColor;
+    FCoordOverlayBackground := S.FCoordOverlayBackground;
+    FCoordOverlayBorderColor := S.FCoordOverlayBorderColor;
+
     FResizeHandleBrushColor := S.FResizeHandleBrushColor;
     FResizeHandlePenColor := S.FResizeHandlePenColor;
+
+    FScrollBarTrackColor := S.FScrollBarTrackColor;
+    FScrollBarThumbColor := S.FScrollBarThumbColor;
+    FScrollBarBorderColor := S.FScrollBarBorderColor;
+    FScrollBarHoverColor := S.FScrollBarHoverColor;
+    FScrollBarActiveColor := S.FScrollBarActiveColor;
   end;
 end;
 
@@ -410,6 +500,8 @@ begin
     DrawTemporaryLink(AContext);
     DrawSnapGuides(AContext);
     DrawBoxSelect(AContext);
+    DrawDragCoordinates(AContext);
+    DrawScrollBars(AContext);
   finally
     ResetCanvasState(AContext);
     EndFrame(AContext);
@@ -723,13 +815,12 @@ end;
 
 procedure TAbstractNodeEditorRenderer.DrawResizeHandle(const AContext: TRenderContext;
   ANode: TCustomNode);
-var
-  i: integer;
-  R: TRect;
 begin
   if not AContext.DrawResizeHandles then
     Exit;
   if (AContext.Graph = nil) or (AContext.Graph.Nodes = nil) then
+    Exit;
+  if (ANode = nil) or (ANode.VisualKind = nvReroute) or not ANode.Selected then
     Exit;
 
   SetBrush(AContext, FStyle.ResizeHandleBrushColor, bsSolid);
@@ -808,6 +899,152 @@ begin
   end;
 end;
 
+procedure TAbstractNodeEditorRenderer.DrawDragCoordinates(
+  const AContext: TRenderContext);
+var
+  N: TCustomNode;
+  P: TPoint;
+  R, TextR: TRect;
+  S1, S2, S3: string;
+  W, H, Pad, LineH: integer;
+  Handled: boolean;
+begin
+  if not AContext.ShowDragCoordinates then
+    Exit;
+  if AContext.EventCanvas = nil then
+    Exit;
+
+  N := AContext.DragCoordNode;
+  if N = nil then
+    Exit;
+
+  P := WorldToScreen(N.X, N.Y, AContext.Zoom, AContext.OffsetX, AContext.OffsetY);
+
+  Handled := False;
+  if Assigned(AContext.OnDrawDragCoordinates) then
+    AContext.OnDrawDragCoordinates(
+      AContext.Sender,
+      AContext.EventCanvas,
+      N,
+      P.X, P.Y,
+      AContext.DragCoordWorldX,
+      AContext.DragCoordWorldY,
+      AContext.DragCoordDeltaX,
+      AContext.DragCoordDeltaY,
+      AContext.Zoom,
+      AContext.OffsetX,
+      AContext.OffsetY,
+      Handled
+      );
+
+  if Handled then
+    Exit;
+
+  S1 := Format('Screen: %d, %d', [P.X, P.Y]);
+  S2 := Format('World: %.1f, %.1f', [AContext.DragCoordWorldX,
+    AContext.DragCoordWorldY]);
+  S3 := Format('Delta: %.1f, %.1f', [AContext.DragCoordDeltaX,
+    AContext.DragCoordDeltaY]);
+
+  SetFont(AContext, FStyle.CoordOverlayTextColor, 8);
+
+  Pad := 4;
+  LineH := AContext.EventCanvas.TextHeight('Hg');
+  W := Max(Max(AContext.EventCanvas.TextWidth(S1),
+    AContext.EventCanvas.TextWidth(S2)), AContext.EventCanvas.TextWidth(
+    S3)) + Pad * 2;
+  H := LineH * 3 + Pad * 2;
+
+  R := Rect(P.X + 4, P.Y + 4, P.X + 4 + W, P.Y + 4 + H);
+
+  SetBrush(AContext, FStyle.CoordOverlayBackground, bsSolid);
+  SetPen(AContext, FStyle.CoordOverlayBorderColor, 1, psSolid);
+  RectangleEx(AContext, R);
+
+  TextR := Rect(R.Left + Pad, R.Top + Pad, R.Right - Pad, R.Bottom - Pad);
+
+  if AContext.HasGDI then
+  begin
+    AContext.GDICanvas.Brush.Style := bsClear;
+    AContext.GDICanvas.Font.Color := FStyle.CoordOverlayTextColor;
+    AContext.GDICanvas.TextOut(TextR.Left, TextR.Top, S1);
+    AContext.GDICanvas.TextOut(TextR.Left, TextR.Top + LineH, S2);
+    AContext.GDICanvas.TextOut(TextR.Left, TextR.Top + LineH * 2, S3);
+    AContext.GDICanvas.Brush.Style := bsSolid;
+  end
+  else if AContext.HasGL then
+  begin
+    AContext.GLCanvas.Brush.Style := bsClear;
+    AContext.GLCanvas.Font.Color := FStyle.CoordOverlayTextColor;
+    AContext.GLCanvas.TextOut(TextR.Left, TextR.Top, S1);
+    AContext.GLCanvas.TextOut(TextR.Left, TextR.Top + LineH, S2);
+    AContext.GLCanvas.TextOut(TextR.Left, TextR.Top + LineH * 2, S3);
+    AContext.GLCanvas.Brush.Style := bsSolid;
+  end;
+end;
+
+procedure TAbstractNodeEditorRenderer.DrawScrollBars(const AContext: TRenderContext);
+var
+  Handled: boolean;
+  ThumbColor: TColor;
+begin
+  if not AContext.ShowScrollBars then
+    Exit;
+  if AContext.EventCanvas = nil then
+    Exit;
+
+  Handled := False;
+  if Assigned(AContext.OnDrawScrollBars) then
+    AContext.OnDrawScrollBars(
+      AContext.Sender,
+      AContext.EventCanvas,
+      AContext.HScrollVisible,
+      AContext.VScrollVisible,
+      AContext.HScrollRect,
+      AContext.VScrollRect,
+      AContext.HScrollTrackRect,
+      AContext.VScrollTrackRect,
+      Handled
+      );
+
+  if Handled then
+    Exit;
+
+  SetPen(AContext, FStyle.ScrollBarBorderColor, 1, psSolid);
+
+  if AContext.HScrollVisible then
+  begin
+    SetBrush(AContext, FStyle.ScrollBarTrackColor, bsSolid);
+    RectangleEx(AContext, AContext.HScrollTrackRect);
+
+    if AContext.HScrollActive then
+      ThumbColor := FStyle.ScrollBarActiveColor
+    else if AContext.HScrollHot then
+      ThumbColor := FStyle.ScrollBarHoverColor
+    else
+      ThumbColor := FStyle.ScrollBarThumbColor;
+
+    SetBrush(AContext, ThumbColor, bsSolid);
+    RectangleEx(AContext, AContext.HScrollRect);
+  end;
+
+  if AContext.VScrollVisible then
+  begin
+    SetBrush(AContext, FStyle.ScrollBarTrackColor, bsSolid);
+    RectangleEx(AContext, AContext.VScrollTrackRect);
+
+    if AContext.VScrollActive then
+      ThumbColor := FStyle.ScrollBarActiveColor
+    else if AContext.VScrollHot then
+      ThumbColor := FStyle.ScrollBarHoverColor
+    else
+      ThumbColor := FStyle.ScrollBarThumbColor;
+
+    SetBrush(AContext, ThumbColor, bsSolid);
+    RectangleEx(AContext, AContext.VScrollRect);
+  end;
+end;
+
 function TAbstractNodeEditorRenderer.IsNodeVisible(const ANode: TCustomNode;
   const VisibleRect: TRectF): boolean;
 var
@@ -818,8 +1055,8 @@ begin
 
   NodeRect := RectF(ANode.X, ANode.Y, ANode.X + ANode.Width, ANode.Y + ANode.Height);
   Result := not ((NodeRect.Right < VisibleRect.Left) or
-    (NodeRect.Left > VisibleRect.Right) or (NodeRect.Bottom <
-    VisibleRect.Top) or (NodeRect.Top > VisibleRect.Bottom));
+    (NodeRect.Left > VisibleRect.Right) or (NodeRect.Bottom < VisibleRect.Top) or
+    (NodeRect.Top > VisibleRect.Bottom));
 end;
 
 procedure TAbstractNodeEditorRenderer.ResetCanvasState(const AContext: TRenderContext);

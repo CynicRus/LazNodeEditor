@@ -569,8 +569,9 @@ end;
 procedure TNodeDragState.MouseMove(Shift: TShiftState; X, Y: integer);
 var
   i: integer;
-  N: TCustomNode;
+  N, OverlayNode: TCustomNode;
   Dx, Dy: single;
+  SX, SY: boolean;
 begin
   if Controller.Selection.NodeCount = 0 then Exit;
 
@@ -589,16 +590,41 @@ begin
         N.X := FCommentChildrenOldPositions[i].X + Dx;
         N.Y := FCommentChildrenOldPositions[i].Y + Dy;
       end;
+
+    OverlayNode := FDraggedComment;
   end
   else
   begin
-    for i := 0 to Controller.Selection.NodeCount - 1 do
+    if Controller.Selection.NodeCount > 0 then
     begin
-      N := Controller.Selection.GetNode(i);
-      N.X := FOldPositions[i].X + Dx;
-      N.Y := FOldPositions[i].Y + Dy;
-    end;
+      Dx := (X - FMachine.StartMouseX) / Viewport.Zoom;
+      Dy := (Y - FMachine.StartMouseY) / Viewport.Zoom;
+
+      Editor.ApplyNodeSnap(Dx, Dy, SX, SY);
+
+      for i := 0 to Controller.Selection.NodeCount - 1 do
+      begin
+        N := Controller.Selection.GetNode(i);
+        N.X := FOldPositions[i].X + Dx;
+        N.Y := FOldPositions[i].Y + Dy;
+      end;
+
+      OverlayNode := Controller.Selection.GetNode(0);
+    end
+    else
+      OverlayNode := nil;
   end;
+
+  if (ssAlt in Shift) and (OverlayNode <> nil) then
+    Editor.UpdateDragCoordinateOverlay(
+      OverlayNode,
+      OverlayNode.X, OverlayNode.Y,
+      OverlayNode.X - FOldPositions[0].X,
+      OverlayNode.Y - FOldPositions[0].Y,
+      True
+    )
+  else
+    Editor.UpdateDragCoordinateOverlay(nil, 0, 0, 0, 0, False);
 
   Editor.RequestRepaint(True);
 end;
@@ -642,6 +668,7 @@ begin
   FreeAndNil(FCommentChildren);
   SetLength(FOldPositions, 0);
   FMachine.ShowDragCoordinates := False;
+  Editor.UpdateDragCoordinateOverlay(nil, 0, 0, 0, 0, False);
   FMachine.ChangeState(TIdleState.Create(FMachine));
 end;
 
@@ -669,6 +696,7 @@ begin
   FreeAndNil(FCommentChildren);
   SetLength(FOldPositions, 0);
   SetLength(FCommentChildrenOldPositions, 0);
+  Editor.UpdateDragCoordinateOverlay(nil, 0, 0, 0, 0, False);
   Editor.Invalidate;
 end;
 
