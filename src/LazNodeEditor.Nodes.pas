@@ -135,6 +135,7 @@ type
 
     procedure SaveToJSON(AObj: TJSONObject); virtual;
     procedure LoadFromJSON(AObj: TJSONObject); virtual;
+    procedure LoadFromJSONText(const S: string); virtual;
   end;
 
   TDefaultNode = class(TCustomNode)
@@ -1309,6 +1310,23 @@ begin
       V.LoadFromJSON(ValueObj);
       FValues.Add(V);
     end;
+  end;
+end;
+
+procedure TCustomNode.LoadFromJSONText(const S: string);
+var
+  Data: TJSONData;
+begin
+
+  if Trim(S) = '' then
+    Exit;
+
+  Data := GetJSON(S);
+  try
+    if Data.JSONType = jtObject then
+      LoadFromJSON(TJSONObject(Data));
+  finally
+    Data.Free;
   end;
 end;
 
