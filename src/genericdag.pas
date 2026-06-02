@@ -26,7 +26,7 @@ unit GenericDAG;
 interface
 
 uses
-  SysUtils, Generics.Collections;
+  Generics.Collections, Classes, SysUtils;
 
 type
 
