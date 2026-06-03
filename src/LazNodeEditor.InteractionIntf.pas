@@ -86,6 +86,20 @@ type
     function BeforeConnectPins(AFromPin, AToPin: TNodePin): boolean;
     procedure AfterConnectPins(AFromPin, AToPin: TNodePin);
     procedure DoNodeChanged(ANode: TCustomNode);
+    function GetOnNodeClickAssigned: boolean;
+    procedure DoNodeClick(ANode: TCustomNode);
+    function GetOnNodeDblClickAssigned: boolean;
+    procedure DoNodeDblClick(ANode: TCustomNode);
+
+    function GetOnPinDblClickAssigned: boolean;
+    procedure DoPinDblClick(APin: TNodePin);
+
+    function GetOnLinkDblClickAssigned: boolean;
+    procedure DoLinkDblClick(ALink: TNodeLink);
+
+    procedure DoNodeSelected(ANode: TCustomNode);
+    procedure DoPinSelected(APin: TNodePin);
+    procedure DoLinkSelected(ALink: TNodeLink);
 
     // Context
     function GetContextWorldPos: TPointF;

@@ -129,6 +129,8 @@ type
     function GetName: string; override;
   end;
 
+  { TInteractionStateMachine }
+
   TInteractionStateMachine = class
   private
     FCurrentState: TEditorInteractionState;
@@ -166,6 +168,14 @@ type
     FResizeOldWidth: integer;
     FResizeOldHeight: integer;
 
+    FLastClickTime: QWord;
+    FLastClickButton: TMouseButton;
+    FLastClickX: integer;
+    FLastClickY: integer;
+    FLastClickNode: TCustomNode;
+    FLastClickPin: TNodePin;
+    FLastClickLink: TNodeLink;
+
     FReconnectLink: TNodeLink;
     FReconnectFixedPin: TNodePin;
     FReconnectMovingFromSide: boolean;
@@ -187,6 +197,11 @@ type
     procedure MouseUp(Button: TMouseButton; Shift: TShiftState; X, Y: integer);
     procedure KeyDown(var Key: word; Shift: TShiftState);
     procedure CancelCurrentOperation;
+
+    procedure RegisterClick(Button: TMouseButton; X, Y: integer;
+      ANode: TCustomNode; APin: TNodePin; ALink: TNodeLink);
+    function IsDoubleClick(Button: TMouseButton; X, Y: integer;
+      ANode: TCustomNode; APin: TNodePin; ALink: TNodeLink): boolean;
 
     property Editor: INodeEditorInteractionHost read FEditor;
     property Controller: TNodeEditorController read FController;
@@ -365,8 +380,12 @@ begin
     Pin := Editor.HitTestPinAt(X, Y, Node);
     if Pin <> nil then
     begin
-      if Editor.GetOnPinClickAssigned then
+      if FMachine.IsDoubleClick(mbLeft, X, Y, Node, Pin, nil) then
+        Editor.DoPinDblClick(Pin)
+      else
         Editor.DoPinClick(Pin);
+
+      FMachine.RegisterClick(mbLeft, X, Y, Node, Pin, nil);
 
       if ssCtrl in Shift then
       begin
@@ -404,8 +423,12 @@ begin
     Link := Editor.HitTestLinkAt(X, Y);
     if Link <> nil then
     begin
-      if Editor.GetOnLinkClickAssigned then
+      if FMachine.IsDoubleClick(mbLeft, X, Y, nil, nil, Link) then
+        Editor.DoLinkDblClick(Link)
+      else
         Editor.DoLinkClick(Link);
+
+      FMachine.RegisterClick(mbLeft, X, Y, nil, nil, Link);
 
       if (ssCtrl in Shift) or (ssShift in Shift) then
         Editor.ToggleLinkSelection(Link)
@@ -427,13 +450,20 @@ begin
       FMachine.TempStartMousePos := Point(X, Y);
       FMachine.DraggingLink := False;
       Editor.NotifySelectionChanged;
-      Editor.RequestRepaint(true);
+      Editor.RequestRepaint(True);
       System.Exit;
     end;
 
     Node := Editor.HitTestNodeAt(X, Y);
     if Node <> nil then
     begin
+      if FMachine.IsDoubleClick(mbLeft, X, Y, Node, nil, nil) then
+        Editor.DoNodeDblClick(Node)
+      else
+        Editor.DoNodeClick(Node);
+
+      FMachine.RegisterClick(mbLeft, X, Y, Node, nil, nil);
+
       if (ssCtrl in Shift) or (ssShift in Shift) then
         Editor.ToggleNodeSelection(Node)
       else if not Controller.Selection.ContainsNode(Node) then
@@ -544,11 +574,10 @@ begin
     for i := 0 to Graph.Nodes.Count - 1 do
     begin
       N := Graph.Nodes[i];
-      if (N <> FDraggedComment) and
-         (N.X >= FDraggedComment.X) and
-         (N.Y >= FDraggedComment.Y) and
-         (N.X + N.Width <= FDraggedComment.X + FDraggedComment.Width) and
-         (N.Y + N.Height <= FDraggedComment.Y + FDraggedComment.Height) then
+      if (N <> FDraggedComment) and (N.X >= FDraggedComment.X) and
+        (N.Y >= FDraggedComment.Y) and (N.X + N.Width <= FDraggedComment.X +
+        FDraggedComment.Width) and (N.Y + N.Height <= FDraggedComment.Y +
+        FDraggedComment.Height) then
         FCommentChildren.Add(N);
     end;
 
@@ -614,7 +643,7 @@ begin
       OverlayNode.X - FOldPositions[0].X,
       OverlayNode.Y - FOldPositions[0].Y,
       True
-    )
+      )
   else
     Editor.UpdateDragCoordinateOverlay(nil, 0, 0, 0, 0, False);
 
@@ -1206,6 +1235,31 @@ procedure TInteractionStateMachine.CancelCurrentOperation;
 begin
   if FCurrentState <> nil then FCurrentState.Cancel;
   ChangeState(TIdleState.Create(Self));
+end;
+
+function TInteractionStateMachine.IsDoubleClick(Button: TMouseButton;
+  X, Y: integer; ANode: TCustomNode; APin: TNodePin; ALink: TNodeLink): boolean;
+const
+  DBL_CLICK_TIME = 500;
+  DBL_CLICK_DIST = 4;
+begin
+  Result :=
+    (Button = FLastClickButton) and ((GetTickCount64 - FLastClickTime) <=
+    DBL_CLICK_TIME) and (Abs(X - FLastClickX) <= DBL_CLICK_DIST) and
+    (Abs(Y - FLastClickY) <= DBL_CLICK_DIST) and (ANode = FLastClickNode) and
+    (APin = FLastClickPin) and (ALink = FLastClickLink);
+end;
+
+procedure TInteractionStateMachine.RegisterClick(Button: TMouseButton;
+  X, Y: integer; ANode: TCustomNode; APin: TNodePin; ALink: TNodeLink);
+begin
+  FLastClickTime := GetTickCount64;
+  FLastClickButton := Button;
+  FLastClickX := X;
+  FLastClickY := Y;
+  FLastClickNode := ANode;
+  FLastClickPin := APin;
+  FLastClickLink := ALink;
 end;
 
 function TInteractionStateMachine.GetIsReconnecting: boolean;

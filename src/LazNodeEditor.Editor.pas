@@ -77,6 +77,7 @@ type
   TNodeChangedEvent = procedure(Sender: TObject; ANode: TCustomNode) of object;
   TNodePinEvent = procedure(Sender: TObject; APin: TNodePin) of object;
   TNodeLinkEvent = procedure(Sender: TObject; ALink: TNodeLink) of object;
+  TNodeMouseEvent = procedure(Sender: TObject; ANode: TCustomNode) of object;
   TEditorConnectPinsEvent = procedure(Sender: TObject; AFromPin, AToPin: TNodePin;
     var AAllow: boolean) of object;
   TEditorPinsConnectedEvent = procedure(Sender: TObject;
@@ -96,6 +97,8 @@ type
     FRenderer: INodeEditorRenderer;
     FRenderContext: TRenderContext;
     FInteraction: TInteractionStateMachine;
+    FUpdateLock: integer;
+    FPendingInvalidate: boolean;
 
     FHoveredNode: TCustomNode;
     FHoveredPin: TNodePin;
@@ -149,6 +152,15 @@ type
     FOnLinkClick: TNodeLinkEvent;
     FOnBeforeConnectPins: TEditorConnectPinsEvent;
     FOnAfterConnectPins: TEditorPinsConnectedEvent;
+
+    FOnNodeClick: TNodeMouseEvent;
+    FOnNodeDblClick: TNodeMouseEvent;
+    FOnPinDblClick: TNodePinEvent;
+    FOnLinkDblClick: TNodeLinkEvent;
+
+    FOnNodeSelected: TNodeMouseEvent;
+    FOnLinkSelected: TNodeLinkEvent;
+    FOnPinSelected: TNodePinEvent;
 
     procedure SetReadOnly(AValue: boolean);
     procedure SetScrollBarsMode(AValue: TScrollBarsMode);
@@ -273,6 +285,22 @@ type
     procedure AfterConnectPins(AFromPin, AToPin: TNodePin);
     procedure DoNodeChanged(ANode: TCustomNode);
 
+    function GetOnNodeClickAssigned: boolean;
+    procedure DoNodeClick(ANode: TCustomNode);
+
+    function GetOnNodeDblClickAssigned: boolean;
+    procedure DoNodeDblClick(ANode: TCustomNode);
+
+    function GetOnPinDblClickAssigned: boolean;
+    procedure DoPinDblClick(APin: TNodePin);
+
+    function GetOnLinkDblClickAssigned: boolean;
+    procedure DoLinkDblClick(ALink: TNodeLink);
+
+    procedure DoNodeSelected(ANode: TCustomNode);
+    procedure DoLinkSelected(ALink: TNodeLink);
+    procedure DoPinSelected(APin: TNodePin);
+
     function GetContextWorldPos: TPointF;
     procedure SetContextWorldPos(const AValue: TPointF);
     procedure PopupContextMenu(AScreenX, AScreenY: integer);
@@ -309,6 +337,10 @@ type
   public
     constructor Create(AOwner: TComponent); override;
     destructor Destroy; override;
+
+    procedure BeginUpdate;
+    procedure EndUpdate;
+    function IsUpdating: boolean;
 
     procedure AddNode(ANode: TCustomNode);
     procedure RemoveNode(ANode: TCustomNode);
@@ -375,10 +407,10 @@ type
     property LinkDrawStyle: TLinkDrawStyle read GetLinkDrawStyle
       write SetLinkDrawStyle default ldsBezier;
 
-    property ScrollBarsVisible: boolean
-      read GetScrollBarsVisible write SetScrollBarsVisible default True;
-    property ScrollBarThickness: integer
-      read GetScrollBarThickness write SetScrollBarThickness default 12;
+    property ScrollBarsVisible: boolean read GetScrollBarsVisible
+      write SetScrollBarsVisible default True;
+    property ScrollBarThickness: integer read GetScrollBarThickness
+      write SetScrollBarThickness default 12;
 
     property ReadOnly: boolean read FReadOnly write SetReadOnly default False;
 
@@ -411,10 +443,19 @@ type
     property OnAfterConnectPins: TEditorPinsConnectedEvent
       read FOnAfterConnectPins write FOnAfterConnectPins;
 
+    property OnNodeClick: TNodeMouseEvent read FOnNodeClick write FOnNodeClick;
+    property OnNodeDblClick: TNodeMouseEvent read FOnNodeDblClick write FOnNodeDblClick;
+    property OnPinDblClick: TNodePinEvent read FOnPinDblClick write FOnPinDblClick;
+    property OnLinkDblClick: TNodeLinkEvent read FOnLinkDblClick write FOnLinkDblClick;
+
+    property OnNodeSelected: TNodeMouseEvent read FOnNodeSelected write FOnNodeSelected;
+    property OnPinSelected: TNodePinEvent read FOnPinSelected write FOnPinSelected;
+    property OnLinkSelected: TNodeLinkEvent read FOnLinkSelected write FOnLinkSelected;
 
   end;
 
-
+function NodeVisualLayer(ANode: TCustomNode): integer; inline;
+function NodePaintCompare(Item1, Item2: Pointer): integer;
 function LinkSortKey(ALink: TNodeLink): integer; inline;
 
 implementation
@@ -465,6 +506,40 @@ begin
     Clip(-Dy, P1.Y - R.Top, T0, T1) and Clip(Dy, R.Bottom - P1.Y, T0, T1);
 end;
 
+function NodeVisualLayer(ANode: TCustomNode): integer; inline;
+begin
+  if ANode = nil then
+    Exit(0);
+
+  case ANode.VisualKind of
+    nvComment: Result := 0;
+    nvNormal: Result := 1;
+    nvReroute: Result := 2;
+    else
+      Result := 1;
+  end;
+end;
+
+function NodePaintCompare(Item1, Item2: Pointer): integer;
+var
+  N1, N2: TCustomNode;
+  L1, L2: integer;
+begin
+  N1 := TCustomNode(Item1);
+  N2 := TCustomNode(Item2);
+  if N1 = N2 then Exit(0);
+  if N1 = nil then Exit(-1);
+  if N2 = nil then Exit(1);
+
+  L1 := NodeVisualLayer(N1);
+  L2 := NodeVisualLayer(N2);
+
+  Result := L1 - L2;
+  if Result = 0 then
+    Result := N1.ZOrder - N2.ZOrder;
+  if Result = 0 then
+    Result := PtrUInt(N1) - PtrUInt(N2);
+end;
 
 function LinkSortKey(ALink: TNodeLink): integer; inline;
 var
@@ -559,6 +634,27 @@ begin
   inherited Destroy;
 end;
 
+procedure TLazNodeEditor.BeginUpdate;
+begin
+  Inc(FUpdateLock);
+end;
+
+procedure TLazNodeEditor.EndUpdate;
+begin
+  if FUpdateLock <= 0 then Exit;
+  Dec(FUpdateLock);
+  if (FUpdateLock = 0) and FPendingInvalidate then
+  begin
+    FPendingInvalidate := False;
+    Invalidate;
+  end;
+end;
+
+function TLazNodeEditor.IsUpdating: Boolean;
+begin
+  Result := FUpdateLock > 0;
+end;
+
 function TLazNodeEditor.ScreenToWorld(SX, SY: integer): TPointF;
 begin
   Result := FViewport.ScreenToWorld(SX, SY);
@@ -596,6 +692,68 @@ procedure TLazNodeEditor.DoLinkClick(ALink: TNodeLink);
 begin
   if Assigned(FOnLinkClick) then
     FOnLinkClick(Self, ALink);
+end;
+
+function TLazNodeEditor.GetOnNodeClickAssigned: boolean;
+begin
+  Result := Assigned(FOnNodeClick);
+end;
+
+procedure TLazNodeEditor.DoNodeClick(ANode: TCustomNode);
+begin
+  if Assigned(FOnNodeClick) then
+    FOnNodeClick(Self, ANode);
+end;
+
+function TLazNodeEditor.GetOnNodeDblClickAssigned: boolean;
+begin
+  Result := Assigned(FOnNodeDblClick);
+end;
+
+procedure TLazNodeEditor.DoNodeDblClick(ANode: TCustomNode);
+begin
+  if Assigned(FOnNodeDblClick) then
+    FOnNodeDblClick(Self, ANode);
+end;
+
+function TLazNodeEditor.GetOnPinDblClickAssigned: boolean;
+begin
+  Result := Assigned(FOnPinDblClick);
+end;
+
+procedure TLazNodeEditor.DoPinDblClick(APin: TNodePin);
+begin
+  if Assigned(FOnPinDblClick) then
+    FOnPinDblClick(Self, APin);
+end;
+
+function TLazNodeEditor.GetOnLinkDblClickAssigned: boolean;
+begin
+  Result := Assigned(FOnLinkDblClick);
+end;
+
+procedure TLazNodeEditor.DoLinkDblClick(ALink: TNodeLink);
+begin
+  if Assigned(FOnLinkDblClick) then
+    FOnLinkDblClick(Self, ALink);
+end;
+
+procedure TLazNodeEditor.DoNodeSelected(ANode: TCustomNode);
+begin
+  if Assigned(FOnNodeSelected) then
+    FOnNodeSelected(Self, ANode);
+end;
+
+procedure TLazNodeEditor.DoLinkSelected(ALink: TNodeLink);
+begin
+  if Assigned(FOnLinkSelected) then
+    FOnLinkSelected(Self, ALink);
+end;
+
+procedure TLazNodeEditor.DoPinSelected(APin: TNodePin);
+begin
+  if Assigned(FOnPinSelected) then
+    FOnPinSelected(Self, APin);
 end;
 
 function TLazNodeEditor.BeforeConnectPins(AFromPin, AToPin: TNodePin): boolean;
@@ -641,8 +799,8 @@ begin
     if Item = nil then
       Continue;
 
-    if SameText(Item.Caption, 'Copy') or
-       SameText(Item.Caption, 'Search Node...') then
+    if SameText(Item.Caption, 'Copy') or SameText(Item.Caption,
+      'Search Node...') then
       Item.Enabled := True
     else if Item.Caption = '-' then
       Item.Enabled := True
@@ -977,11 +1135,20 @@ var
 begin
   if (FGraph <> nil) and (FGraph.LinkRouter <> nil) then
     (FGraph.LinkRouter as TNodeLinkRouter).InvalidateCache;
+
+  if IsUpdating then
+  begin
+    FPendingInvalidate := True;
+    Exit;
+  end;
+
   if AForce then
   begin
+    FLastPaintTick := GetTickCount64;
     Invalidate;
     Exit;
   end;
+
   T := GetTickCount64;
   if (T - FLastPaintTick) >= 16 then
   begin
@@ -1036,11 +1203,10 @@ begin
       if (N = nil) or (not N.HitTestNode(W.X, W.Y)) then
         Continue;
 
-      if (BestNode = nil) or
-         (NodeVisualLayer(N) > BestLayer) or
-         ((NodeVisualLayer(N) = BestLayer) and (N.ZOrder > BestZ)) or
-         ((NodeVisualLayer(N) = BestLayer) and (N.ZOrder = BestZ) and
-          (PtrUInt(N) > PtrUInt(BestNode))) then
+      if (BestNode = nil) or (NodeVisualLayer(N) > BestLayer) or
+        ((NodeVisualLayer(N) = BestLayer) and (N.ZOrder > BestZ)) or
+        ((NodeVisualLayer(N) = BestLayer) and (N.ZOrder = BestZ) and
+        (PtrUInt(N) > PtrUInt(BestNode))) then
       begin
         BestNode := N;
         BestLayer := NodeVisualLayer(N);
@@ -1088,11 +1254,10 @@ begin
       if P = nil then
         Continue;
 
-      if (BestNode = nil) or
-         (NodeVisualLayer(N) > BestLayer) or
-         ((NodeVisualLayer(N) = BestLayer) and (N.ZOrder > BestZ)) or
-         ((NodeVisualLayer(N) = BestLayer) and (N.ZOrder = BestZ) and
-          (PtrUInt(N) > PtrUInt(BestNode))) then
+      if (BestNode = nil) or (NodeVisualLayer(N) > BestLayer) or
+        ((NodeVisualLayer(N) = BestLayer) and (N.ZOrder > BestZ)) or
+        ((NodeVisualLayer(N) = BestLayer) and (N.ZOrder = BestZ) and
+        (PtrUInt(N) > PtrUInt(BestNode))) then
       begin
         Result := P;
         ANode := N;
@@ -1197,11 +1362,10 @@ begin
       if (N = nil) or (not N.HitTestResizeHandle(W.X, W.Y, RS)) then
         Continue;
 
-      if (BestNode = nil) or
-         (NodeVisualLayer(N) > BestLayer) or
-         ((NodeVisualLayer(N) = BestLayer) and (N.ZOrder > BestZ)) or
-         ((NodeVisualLayer(N) = BestLayer) and (N.ZOrder = BestZ) and
-          (PtrUInt(N) > PtrUInt(BestNode))) then
+      if (BestNode = nil) or (NodeVisualLayer(N) > BestLayer) or
+        ((NodeVisualLayer(N) = BestLayer) and (N.ZOrder > BestZ)) or
+        ((NodeVisualLayer(N) = BestLayer) and (N.ZOrder = BestZ) and
+        (PtrUInt(N) > PtrUInt(BestNode))) then
       begin
         BestNode := N;
         BestLayer := NodeVisualLayer(N);
@@ -1523,7 +1687,8 @@ begin
   FOnDrawScrollBars := AValue;
 end;
 
-procedure TLazNodeEditor.SetOnDrawDragCoordinates(AValue: TRenderDragCoordinatesDrawEvent);
+procedure TLazNodeEditor.SetOnDrawDragCoordinates(AValue:
+  TRenderDragCoordinatesDrawEvent);
 begin
   if FOnDrawDragCoordinates = AValue then
     Exit;
@@ -1576,14 +1741,14 @@ end;
 
 function TLazNodeEditor.GetHorizontalScrollEnabled: boolean; inline;
 begin
-  Result := Assigned(FScrollBars) and
-    (FScrollBars.Mode in [sbmHorizontal, sbmBoth, sbmAuto]);
+  Result := Assigned(FScrollBars) and (FScrollBars.Mode in
+    [sbmHorizontal, sbmBoth, sbmAuto]);
 end;
 
 function TLazNodeEditor.GetVerticalScrollEnabled: boolean; inline;
 begin
-  Result := Assigned(FScrollBars) and
-    (FScrollBars.Mode in [sbmVertical, sbmBoth, sbmAuto]);
+  Result := Assigned(FScrollBars) and (FScrollBars.Mode in
+    [sbmVertical, sbmBoth, sbmAuto]);
 end;
 
 procedure TLazNodeEditor.UpdateScrollBars;
@@ -1677,6 +1842,8 @@ procedure TLazNodeEditor.SelectPinInternal(APin: TNodePin; AAppend: boolean);
 begin
   if FController.PinSelection <> nil then
     FController.PinSelection.SelectPin(APin, AAppend);
+  if APin <> nil then
+    DoPinSelected(APin);
 end;
 
 procedure TLazNodeEditor.TogglePinSelection(APin: TNodePin);
@@ -1703,6 +1870,7 @@ begin
   FController.Selection.SelectNode(ANode, AAppend);
   SyncNodeSelectedFlags;
   InvalidateSortedNodes;
+  DoNodeSelected(ANode);
 end;
 
 procedure TLazNodeEditor.SelectLinkInternal(ALink: TNodeLink; AKeepNodes: boolean);
@@ -1715,6 +1883,7 @@ begin
   end;
   FController.Selection.SelectLink(ALink, True);
   SyncNodeSelectedFlags;
+  DoLinkSelected(ALink);
 end;
 
 procedure TLazNodeEditor.AddNodeToSelection(ANode: TCustomNode);
@@ -1724,6 +1893,7 @@ begin
   ClearPinSelection;
   SyncNodeSelectedFlags;
   InvalidateSortedNodes;
+  DoNodeSelected(ANode);
 end;
 
 procedure TLazNodeEditor.RemoveNodeFromSelection(ANode: TCustomNode);
@@ -1739,6 +1909,7 @@ begin
   if (ALink = nil) or (FController.Selection = nil) then Exit;
   FController.Selection.AddLinkToSelection(ALink);
   ClearPinSelection;
+  DoLinkSelected(ALink);
 end;
 
 procedure TLazNodeEditor.RemoveLinkFromSelection(ALink: TNodeLink);
@@ -2010,7 +2181,8 @@ begin
   FRenderContext.DragCoordDeltaX := FDragCoordDeltaX;
   FRenderContext.DragCoordDeltaY := FDragCoordDeltaY;
 
-  FRenderContext.ShowScrollBars := Assigned(FScrollBars) and FScrollBars.Visible and
+  FRenderContext.ShowScrollBars :=
+    Assigned(FScrollBars) and FScrollBars.Visible and
     (FScrollBars.HVisible or FScrollBars.VVisible);
   FRenderContext.HScrollVisible := Assigned(FScrollBars) and FScrollBars.HVisible;
   FRenderContext.VScrollVisible := Assigned(FScrollBars) and FScrollBars.VVisible;
@@ -2067,8 +2239,8 @@ begin
 
   if Button = mbLeft then
   begin
-    if Assigned(FScrollBars) and
-       FScrollBars.MouseDown(FViewport, GB, HasGB, ClientWidth, ClientHeight, X, Y) then
+    if Assigned(FScrollBars) and FScrollBars.MouseDown(FViewport, GB,
+      HasGB, ClientWidth, ClientHeight, X, Y) then
     begin
       MouseCapture := True;
       Invalidate;
@@ -2077,8 +2249,8 @@ begin
 
     if not FReadOnly then
     begin
-      if Assigned(FScrollBars) and
-         FScrollBars.ScrollPageToClick(FViewport, GB, HasGB, ClientWidth, ClientHeight, X, Y) then
+      if Assigned(FScrollBars) and FScrollBars.ScrollPageToClick(
+        FViewport, GB, HasGB, ClientWidth, ClientHeight, X, Y) then
       begin
         Invalidate;
         Exit;
@@ -2110,8 +2282,8 @@ begin
     if FScrollBars.UpdateHotState(X, Y) then
       NeedInvalidate := True;
 
-    if FScrollBars.MouseMove(FViewport, GB, HasGB, ClientWidth, ClientHeight,
-      X, Y, NeedInvalidate) then
+    if FScrollBars.MouseMove(FViewport, GB, HasGB, ClientWidth,
+      ClientHeight, X, Y, NeedInvalidate) then
     begin
       if NeedInvalidate then
         Invalidate;
@@ -2183,22 +2355,22 @@ begin
   begin
     case AAction of
       eaFrame, eaFrameSelected:
+      begin
+        if ExecuteEditorAction(AAction) then
         begin
-          if ExecuteEditorAction(AAction) then
-          begin
-            Key := 0;
-            Exit;
-          end;
-        end;
-      else
-        begin
-          if Key = VK_ESCAPE then
-          begin
-            FInteraction.CancelCurrentOperation;
-            Key := 0;
-          end;
+          Key := 0;
           Exit;
         end;
+      end;
+      else
+      begin
+        if Key = VK_ESCAPE then
+        begin
+          FInteraction.CancelCurrentOperation;
+          Key := 0;
+        end;
+        Exit;
+      end;
     end;
   end;
 
