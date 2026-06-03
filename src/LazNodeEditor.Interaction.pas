@@ -580,13 +580,14 @@ begin
   begin
     FDraggedComment.X := FOldPositions[FDraggedCommentIndex].X + Dx;
     FDraggedComment.Y := FOldPositions[FDraggedCommentIndex].Y + Dy;
-
+    Graph.NotifyNodeGeometryChanged(N);
     if FCommentChildren <> nil then
       for i := 0 to FCommentChildren.Count - 1 do
       begin
         N := FCommentChildren[i];
         N.X := FCommentChildrenOldPositions[i].X + Dx;
         N.Y := FCommentChildrenOldPositions[i].Y + Dy;
+        Graph.NotifyNodeGeometryChanged(N);
       end;
 
     OverlayNode := FDraggedComment;
@@ -600,6 +601,7 @@ begin
       N := Controller.Selection.GetNode(i);
       N.X := FOldPositions[i].X + Dx;
       N.Y := FOldPositions[i].Y + Dy;
+      Graph.NotifyNodeGeometryChanged(N);
     end;
 
     OverlayNode := Controller.Selection.GetNode(0);
