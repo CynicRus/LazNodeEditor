@@ -26,7 +26,7 @@ unit LazNodeEditor.SpatialIndex;
 interface
 
 uses
-  Classes, SysUtils, Types, Math;
+  Classes, SysUtils, Types, Math, LazNodeEditor.Types;
 
 type
   PSpatialItem = ^TSpatialItem;
