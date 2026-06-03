@@ -26,8 +26,7 @@ unit LazNodeEditor.GraphCommands;
 interface
 
 uses
-  Classes, SysUtils, Graphics, Types, fpjson, jsonparser, Math,
-  Generics.Collections,
+  Generics.Collections, SysUtils, Graphics, Types, fpjson, jsonparser, Math,
   LazNodeEditor.Types,
   LazNodeEditor.Nodes,
   LazNodeEditor.GraphCommandIntf;
