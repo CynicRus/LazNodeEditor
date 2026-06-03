@@ -26,7 +26,7 @@ unit LazNodeEditor.Selection;
 interface
 
 uses
-  Classes, SysUtils, Generics.Collections,
+  Generics.Collections, Classes, SysUtils,
   LazNodeEditor.Types,
   LazNodeEditor.Nodes,
   LazNodeEditor.Graph;
