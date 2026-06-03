@@ -26,7 +26,7 @@ unit LazNodeEditor.ClipboardService;
 interface
 
 uses
-  Classes, SysUtils, Generics.Collections, fpjson, jsonparser, math,
+  Generics.Collections, Classes, SysUtils, fpjson, jsonparser, math,
   LazNodeEditor.Types,
   LazNodeEditor.Nodes,
   LazNodeEditor.Graph,
