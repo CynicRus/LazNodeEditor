@@ -207,7 +207,11 @@ type
     Node: TObject;
     Link: TNodeLink;
   end;
-
+  
+{$if FPC_FULLVERSION < 30301}
+function PointF(const AX, AY: Single): TPointF; inline;
+function RectF(const ALeft, ATop, ARight, ABottom: Single): TRectF; inline;
+{$ENDIF}  
 function NewId: string;
 function PinKindToStr(AKind: TPinKind): string;
 function StrToPinKind(const S: string): TPinKind;
@@ -240,6 +244,22 @@ implementation
 
 uses
   LCLIntf, LazNodeEditor.Nodes;
+
+{$if FPC_FULLVERSION < 30301}
+function PointF(const AX, AY: Single): TPointF; inline;
+begin
+  Result.X := AX;
+  Result.Y := AY;
+end;
+
+function RectF(const ALeft, ATop, ARight, ABottom: Single): TRectF; inline;
+begin
+  Result.Left := ALeft;
+  Result.Top := ATop;
+  Result.Right := ARight;
+  Result.Bottom := ABottom;
+end;
+{$endif}
 
 function NewId: string;
 var
