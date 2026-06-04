@@ -37,7 +37,7 @@ uses
   {$IFDEF WINDOWS}
   , Windows
   {$ELSE}
-  , BaseUnix, Unix, UnixType, ctypes
+  , BaseUnix, Unix, UnixType, linux, ctypes
   {$ENDIF};
 
 type
@@ -401,8 +401,11 @@ begin
     FStartCounter := 0;
 end;
 {$ELSE}
+const CLOCK_MONOTONIC = 1;
 begin
-  fpclock_gettime(CLOCK_MONOTONIC, @FStartTime);
+  clock_gettime(CLOCK_MONOTONIC, @FStartTime);
+end;
+
 {$ENDIF}
 
 function THighResTimer.ElapsedMs: Double;
@@ -422,7 +425,7 @@ var
   T: TTimespec;
   SecDiff, NSecDiff: Int64;
 begin
-  fpclock_gettime(CLOCK_MONOTONIC, @T);
+  clock_gettime(CLOCK_MONOTONIC, @T);
   SecDiff := T.tv_sec - FStartTime.tv_sec;
   NSecDiff := T.tv_nsec - FStartTime.tv_nsec;
   Result := SecDiff * 1000.0 + NSecDiff / 1000000.0;
