@@ -433,13 +433,11 @@ begin
       if (ssCtrl in Shift) or (ssShift in Shift) then
         Editor.ToggleLinkSelection(Link)
       else
-      begin
-        Editor.ClearSelectionInternal;
-        Controller.Selection.SelectLink(Link, False);
-      end;
+        Editor.SelectLinkInternal(Link, False);
 
       FMachine.ReconnectLink := Link;
       FMachine.ReconnectMovingFromSide := Editor.IsMouseNearLinkStart(Link, X, Y);
+
       if FMachine.ReconnectMovingFromSide then
         FMachine.ReconnectFixedPin := Link.ToPin
       else
@@ -449,7 +447,7 @@ begin
       FMachine.TempMousePos := Point(X, Y);
       FMachine.TempStartMousePos := Point(X, Y);
       FMachine.DraggingLink := False;
-      Editor.NotifySelectionChanged;
+
       Editor.RequestRepaint(True);
       System.Exit;
     end;
@@ -609,7 +607,7 @@ begin
   begin
     FDraggedComment.X := FOldPositions[FDraggedCommentIndex].X + Dx;
     FDraggedComment.Y := FOldPositions[FDraggedCommentIndex].Y + Dy;
-    Graph.NotifyNodeGeometryChanged(N);
+    Graph.NotifyNodeGeometryChanged(FDraggedComment);
     if FCommentChildren <> nil then
       for i := 0 to FCommentChildren.Count - 1 do
       begin

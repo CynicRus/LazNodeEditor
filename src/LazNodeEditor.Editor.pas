@@ -162,6 +162,9 @@ type
     FOnLinkSelected: TNodeLinkEvent;
     FOnPinSelected: TNodePinEvent;
 
+    FSelectionNotifyLock: integer;
+    FPendingSelectionChanged: boolean;
+
     procedure SetReadOnly(AValue: boolean);
     procedure SetScrollBarsMode(AValue: TScrollBarsMode);
     procedure SetOnDrawScrollBars(AValue: TRenderScrollBarsDrawEvent);
@@ -236,6 +239,9 @@ type
     procedure Resize; override;
     function ResolveShortcut(Key: word; Shift: TShiftState): TEditorAction; virtual;
     function ExecuteEditorAction(AAction: TEditorAction): boolean; virtual;
+    procedure BeginSelectionUpdate;
+    procedure EndSelectionUpdate;
+    procedure SelectionChanged;
     procedure SelectNodeInternal(ANode: TCustomNode; AAppend: boolean);
     procedure SelectLinkInternal(ALink: TNodeLink; AKeepNodes: boolean = False);
     procedure ClearSelectionInternal;
@@ -650,7 +656,7 @@ begin
   end;
 end;
 
-function TLazNodeEditor.IsUpdating: Boolean;
+function TLazNodeEditor.IsUpdating: boolean;
 begin
   Result := FUpdateLock > 0;
 end;
@@ -1112,6 +1118,44 @@ begin
   end;
 end;
 
+procedure TLazNodeEditor.BeginSelectionUpdate;
+begin
+  Inc(FSelectionNotifyLock);
+
+  if FController.Selection <> nil then
+    FController.Selection.BeginUpdate;
+end;
+
+procedure TLazNodeEditor.EndSelectionUpdate;
+begin
+  if FController.Selection <> nil then
+    FController.Selection.EndUpdate;
+
+  if FSelectionNotifyLock > 0 then
+    Dec(FSelectionNotifyLock);
+
+  if (FSelectionNotifyLock = 0) and FPendingSelectionChanged then
+  begin
+    FPendingSelectionChanged := False;
+    NotifySelectionChanged;
+    Invalidate;
+  end;
+end;
+
+procedure TLazNodeEditor.SelectionChanged;
+begin
+  SyncNodeSelectedFlags;
+  InvalidateSortedNodes;
+
+  if FSelectionNotifyLock > 0 then
+    FPendingSelectionChanged := True
+  else
+  begin
+    NotifySelectionChanged;
+    Invalidate;
+  end;
+end;
+
 procedure TLazNodeEditor.InvalidateSortedNodes;
 begin
   FPaintNodesDirty := True;
@@ -1133,8 +1177,8 @@ procedure TLazNodeEditor.RequestRepaint(const AForce: boolean);
 var
   T: QWord;
 begin
-  if (FGraph <> nil) and (FGraph.LinkRouter <> nil) then
-    (FGraph.LinkRouter as TNodeLinkRouter).InvalidateCache;
+  {if (FGraph <> nil) and (FGraph.LinkRouter <> nil) then
+    (FGraph.LinkRouter as TNodeLinkRouter).InvalidateCache;}
 
   if IsUpdating then
   begin
@@ -1166,7 +1210,7 @@ end;
 
 procedure TLazNodeEditor.ControllerSelectionChanged(Sender: TObject);
 begin
-  SyncControllerSelectionToView;
+  SelectionChanged;
 end;
 
 procedure TLazNodeEditor.DoPinSelectionChanged(Sender: TObject);
@@ -1875,13 +1919,22 @@ end;
 
 procedure TLazNodeEditor.SelectLinkInternal(ALink: TNodeLink; AKeepNodes: boolean);
 begin
-  if (ALink = nil) or (FController.Selection = nil) then Exit;
-  if not AKeepNodes then
-  begin
-    FController.Selection.Clear;
-    ClearPinSelection;
+  if (ALink = nil) or (FController.Selection = nil) then
+    Exit;
+
+  FController.Selection.BeginUpdate;
+  try
+    if not AKeepNodes then
+    begin
+      FController.Selection.Clear;
+      ClearPinSelection;
+    end;
+
+    FController.Selection.SelectLink(ALink, True);
+  finally
+    FController.Selection.EndUpdate;
   end;
-  FController.Selection.SelectLink(ALink, True);
+
   SyncNodeSelectedFlags;
   DoLinkSelected(ALink);
 end;

@@ -74,6 +74,7 @@ type
   TGraphNodeEvent = procedure(Sender: TObject; ANode: TObject) of object;
   TGraphLinkEvent = procedure(Sender: TObject; ALink: TObject) of object;
   TGraphChangedEvent = procedure(Sender: TObject) of object;
+  TGraphClearEvent = procedure(Sender: TObject) of object;
   TEditorZoomChangedEvent = procedure(Sender: TObject) of object;
   TIsLinkSelectedFunc = function(ALink: TNodeLink): boolean of object;
   TNodeLinkList = specialize TObjectList<TNodeLink>;

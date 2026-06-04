@@ -206,7 +206,12 @@ begin
   if Result = 0 then
     Result := N1.ZOrder - N2.ZOrder;
   if Result = 0 then
-    Result := PtrUInt(N1) - PtrUInt(N2);
+    if PtrUInt(N1) < PtrUInt(N2) then
+      Result := -1
+    else if PtrUInt(N1) > PtrUInt(N2) then
+      Result := 1
+    else
+      Result := 0;
 end;
 
 
@@ -1252,7 +1257,6 @@ begin
 
   finally
     EndUpdate;
-    DoGraphChanged;
   end;
 
   InvalidateSpatial;
@@ -1475,7 +1479,7 @@ begin
   begin
     L := FLinks[i];
     if (L.FromPin = APin) or (L.ToPin = APin) then
-      FLinks.Delete(i);
+      RemoveLink(L);
   end;
 
   Result := N.RemovePin(APin);
