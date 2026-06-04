@@ -107,9 +107,10 @@ type
 
   TNoRefCountObject = class(TObject, IInterface)
   protected
-    function QueryInterface(constref IID: TGUID; out Obj): HResult; {$IFDEF MSWINDOWS}stdcall;{$ELSE}cdecl;{$ENDIF}
-    function _AddRef: LongInt; {$IFDEF MSWINDOWS}stdcall;{$ELSE}cdecl;{$ENDIF}
-    function _Release: LongInt; {$IFDEF MSWINDOWS}stdcall;{$ELSE}cdecl;{$ENDIF}
+    function QueryInterface(constref IID: TGUID; out Obj): HResult;
+    {$IFDEF MSWINDOWS} stdcall;{$ELSE}cdecl;{$ENDIF}
+    function _AddRef: longint; {$IFDEF MSWINDOWS} stdcall;{$ELSE}cdecl;{$ENDIF}
+    function _Release: longint; {$IFDEF MSWINDOWS} stdcall;{$ELSE}cdecl;{$ENDIF}
   end;
 
   { TNodePinType }
@@ -207,11 +208,12 @@ type
     Node: TObject;
     Link: TNodeLink;
   end;
-  
+
 {$if FPC_FULLVERSION < 30301}
-function PointF(const AX, AY: Single): TPointF; inline;
-function RectF(const ALeft, ATop, ARight, ABottom: Single): TRectF; inline;
-{$ENDIF}  
+function PointF(const AX, AY: single): TPointF; inline;
+function RectF(const ALeft, ATop, ARight, ABottom: single): TRectF; inline;
+function InflateRect(var Rect: TRectF; dx: single; dy: single): boolean; inline;
+{$ENDIF}
 function NewId: string;
 function PinKindToStr(AKind: TPinKind): string;
 function StrToPinKind(const S: string): TPinKind;
@@ -246,20 +248,35 @@ uses
   LCLIntf, LazNodeEditor.Nodes;
 
 {$if FPC_FULLVERSION < 30301}
-function PointF(const AX, AY: Single): TPointF; inline;
+function PointF(const AX, AY: single): TPointF; inline;
 begin
   Result.X := AX;
   Result.Y := AY;
 end;
 
-function RectF(const ALeft, ATop, ARight, ABottom: Single): TRectF; inline;
+function RectF(const ALeft, ATop, ARight, ABottom: single): TRectF; inline;
 begin
   Result.Left := ALeft;
   Result.Top := ATop;
   Result.Right := ARight;
   Result.Bottom := ABottom;
 end;
+
+function InflateRect(var Rect: TRectF; dx: single; dy: single): boolean;
+begin
+  Result := assigned(@Rect);
+  if Result then
+    with Rect do
+    begin
+      Left := Left - dx;
+      Top := Top - dy;
+      Right := Right + dx;
+      Bottom := Bottom + dy;
+    end;
+end;
 {$endif}
+
+
 
 function NewId: string;
 var
@@ -377,20 +394,30 @@ begin
   end;
 end;
 
-function TNoRefCountObject.QueryInterface(constref IID: TGUID; out Obj): HResult; {$IFDEF MSWINDOWS}stdcall;{$ELSE}cdecl;{$ENDIF}
+function TNoRefCountObject.QueryInterface(constref IID: TGUID; out Obj): HResult;
+  {$IFDEF MSWINDOWS} stdcall;
+  {$ELSE}
+cdecl;
+  {$ENDIF}
 begin
   if GetInterface(IID, Obj) then
     Result := 0
   else
-    Result := LongInt($80004002);
+    Result := longint($80004002);
 end;
 
-function TNoRefCountObject._AddRef: LongInt; {$IFDEF MSWINDOWS}stdcall;{$ELSE}cdecl;{$ENDIF}
+function TNoRefCountObject._AddRef: longint; {$IFDEF MSWINDOWS} stdcall;
+  {$ELSE}
+cdecl;
+  {$ENDIF}
 begin
   Result := -1;
 end;
 
-function TNoRefCountObject._Release: LongInt; {$IFDEF MSWINDOWS}stdcall;{$ELSE}cdecl;{$ENDIF}
+function TNoRefCountObject._Release: longint; {$IFDEF MSWINDOWS} stdcall;
+  {$ELSE}
+cdecl;
+  {$ENDIF}
 begin
   Result := -1;
 end;

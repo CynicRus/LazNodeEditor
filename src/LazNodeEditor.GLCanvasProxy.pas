@@ -167,7 +167,7 @@ type
     function TextExtent(const Text: string): TSize; override;
     function TextHeight(const Text: string): integer; override;
     function TextWidth(const Text: string): integer; override;
-    {$IFDEF MSWINDOWS}
+    {$IF Defined(MSWINDOWS) and (not Defined(FPC) or (FPC_FULLVERSION >= 30301))}
     function TextFitInfo(const Text: string; MaxWidth: integer): integer; override;
     {$ENDIF}
     function HandleAllocated: boolean; override;
@@ -1039,7 +1039,7 @@ begin
     Result := inherited TextWidth(Text);
 end;
 
-{$IFDEF MSWINDOWS}
+{$IF Defined(MSWINDOWS) and (not Defined(FPC) or (FPC_FULLVERSION >= 30301))}
 function TGLCanvasProxy.TextFitInfo(const Text: string; MaxWidth: integer): integer;
 begin
   if Assigned(FGL) then
