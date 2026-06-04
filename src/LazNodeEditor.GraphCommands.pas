@@ -71,6 +71,7 @@ type
   TAddNodeCommand = class(TGraphCommand)
   private
     FNode: TCustomNode;
+    FNodeId: string;
     FOwnsNode: boolean;
   public
     constructor Create(AGraph: INodeGraphCommandHost; ANode: TCustomNode); reintroduce;
@@ -422,6 +423,7 @@ constructor TAddNodeCommand.Create(AGraph: INodeGraphCommandHost;
 begin
   inherited Create(AGraph, 'Add node');
   FNode := ANode;
+  FNodeId := ANode.Id;
   FOwnsNode := True;
 end;
 
@@ -440,17 +442,21 @@ begin
   if not FGraph.NodesContains(FNode) then
   begin
     FGraph.AddNode(FNode);
+    FNode := nil;
     FOwnsNode := False;
   end;
 end;
 
 procedure TAddNodeCommand.Undo;
 begin
-  if (FGraph = nil) or (FNode = nil) then
+  if (FGraph = nil) then
     Exit;
 
-  if FGraph.DetachNode(FNode) then
-    FOwnsNode := True;
+  FNode := FGraph.FindNodeById(FNodeId);
+
+  if Assigned(FNode) then
+    if FGraph.DetachNode(FNode) then
+      FOwnsNode := True;
 end;
 
 constructor TRemoveNodeCommand.Create(AGraph: INodeGraphCommandHost;
