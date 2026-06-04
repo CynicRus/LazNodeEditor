@@ -13,7 +13,9 @@ uses
   LazNodeEditor.Editor,
   LazNodeEditor.Inspector,
   LAzNodeEditor.LinkRouter,
-  LazNodeEditor.Controller, LazNodeEditor.GLCanvasProxy;
+  LazNodeEditor.Controller,
+  LazNodeEditor.GLCanvasProxy,
+  LazNodeEditor.Renderer;
 
 type
 
@@ -547,8 +549,9 @@ begin
   FEditor.Style.GridSize := 40;
 
   FInspector.Editor := FEditor;
-  FEditor.AntiAliasing := True;
-  FEditor.LinkDrawStyle := ldsOrthogonal;
+  FEditor.AntiAliasing := true;
+  FEditor.LinkDrawStyle := ldsBezier{ldsOrthogonal}{ldsStraight};
+  FEditor.ScrollBarsMode := sbmBoth;
 
   FEditor.OnSelectionChanged := @OnSelectionChanged;
   FEditor.OnNodeChanged := @OnNodeChanged;
@@ -559,6 +562,7 @@ begin
   FEditor.OnDrawPin := @EditorDrawPin;
   FEditor.OnDrawLink := @EditorDrawLink;
   FEditor.OnDrawSnapGuides := @EditorDrawSnapGuides;
+  FEditor.Style.DebugInfo := True;
 
  { FEditor.LinkColor := $00FF9A2E;
   FEditor.LinkHoverColor := $00FFD080;
@@ -984,6 +988,7 @@ begin
   // ── Мелкая сетка ─────────────────────────────────────────────────────────
   ACanvas.Pen.Color := $00222222;
   ACanvas.Pen.Width := 1;
+  ACanvas.Pen.Style := psSolid; ;
 
   X := Floor(VisibleWorldRect.Left / SmallStep) * SmallStep;
   while X <= VisibleWorldRect.Right do
@@ -1006,6 +1011,7 @@ begin
   // ── Крупная сетка ─────────────────────────────────────────────────────────
   ACanvas.Pen.Color := $00303030;
   ACanvas.Pen.Width := 1;
+  ACanvas.Pen.Style := psSolid;
 
   X := Floor(VisibleWorldRect.Left / LargeStep) * LargeStep;
   while X <= VisibleWorldRect.Right do
