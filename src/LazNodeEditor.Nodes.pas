@@ -145,20 +145,6 @@ type
     procedure SetupPins; override;
   end;
 
-  TFloatNode = class(TCustomNode)
-  public
-    constructor Create(ATitle: string; AX, AY: single; AWidth: integer = 180;
-      AHeight: integer = 100); override;
-    procedure SetupPins; override;
-  end;
-
-  TAddNode = class(TCustomNode)
-  public
-    constructor Create(ATitle: string; AX, AY: single; AWidth: integer = 180;
-      AHeight: integer = 130); override;
-    procedure SetupPins; override;
-  end;
-
   TRerouteNode = class(TCustomNode)
   protected
     function GetPinHitRadiusWorld(Zoom: double): single; override;
@@ -1342,44 +1328,6 @@ begin
   ClearPins;
   AddInput('In', 'float', pkData, 45);
   AddOutput('Out', 'float', pkData, 45);
-end;
-
-constructor TFloatNode.Create(ATitle: string; AX, AY: single; AWidth, AHeight: integer);
-begin
-  inherited Create(ATitle, AX, AY, AWidth, AHeight);
-  NodeType := 'float';
-  HeaderColor := clMoneyGreen;
-end;
-
-procedure TFloatNode.SetupPins;
-var
-  V: TNodeValue;
-begin
-  ClearPins;
-  AddOutput('Value', 'float', pkData, 45);
-
-  if FindValue('value') = nil then
-  begin
-    V := AddValue('value', nvkFloat);
-    V.FloatValue := 0.0;
-  end;
-end;
-
-constructor TAddNode.Create(ATitle: string; AX, AY: single; AWidth, AHeight: integer);
-begin
-  inherited Create(ATitle, AX, AY, AWidth, AHeight);
-  NodeType := 'add';
-  HeaderColor := $00D0A0FF;
-end;
-
-procedure TAddNode.SetupPins;
-begin
-  ClearPins;
-  AddInput('A', 'float', pkData, 45);
-  GetInput(InputCount - 1).IsRequired := True;
-  AddInput('B', 'float', pkData, 75);
-  GetInput(InputCount - 1).IsRequired := True;
-  AddOutput('Result', 'float', pkData, 60);
 end;
 
 function TRerouteNode.GetPinHitRadiusWorld(Zoom: double): single;

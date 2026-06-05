@@ -154,6 +154,28 @@ type
     procedure NotifyNodeGeometryChanged(ANode: TCustomNode);
     procedure NotifyLinkGeometryChanged(ALink: TNodeLink);
 
+    function GetIncomingLinksForNode(ANode: TCustomNode; AList: TList): integer;
+    function GetOutgoingLinksForNode(ANode: TCustomNode; AList: TList): integer;
+
+    function GetIncomingDataLinksForNode(ANode: TCustomNode; AList: TList): integer;
+    function GetOutgoingDataLinksForNode(ANode: TCustomNode; AList: TList): integer;
+
+    function GetIncomingExecLinksForNode(ANode: TCustomNode; AList: TList): integer;
+    function GetOutgoingExecLinksForNode(ANode: TCustomNode; AList: TList): integer;
+
+    function GetPredecessorNodes(ANode: TCustomNode; AList: TList): integer;
+    function GetSuccessorNodes(ANode: TCustomNode; AList: TList): integer;
+
+    function GetNodeIncomingCount(ANode: TCustomNode): integer;
+    function GetNodeOutgoingCount(ANode: TCustomNode): integer;
+    function GetNodeIncomingDataCount(ANode: TCustomNode): integer;
+    function GetNodeOutgoingDataCount(ANode: TCustomNode): integer;
+
+    function TopologicalSortNodes(AList: TList): integer;
+    function TopologicalSortDataNodes(AList: TList): integer;
+    function GetRootNodes(AList: TList): integer;
+    function GetDataRootNodes(AList: TList): integer;
+
     property Nodes: TNodeDAG read FNodes;
     property Links: TNodeLinkList read FLinks;
     property Registry: TNodeRegistry read FRegistry;
@@ -270,15 +292,6 @@ begin
   FLinkIndex := TSimpleRTree.Create(16);
   FStructureVersion := 1;
   FSpatialVersion := 0;
-
-  FRegistry.RegisterNodeEx('default', 'Default Node', 'Basic',
-    'Generic test node.', 'default,test', TDefaultNode);
-
-  FRegistry.RegisterNodeEx('float', 'Float Value', 'Values',
-    'Constant float value.', 'float,number,value,const', TFloatNode);
-
-  FRegistry.RegisterNodeEx('add', 'Add Float', 'Math',
-    'Adds two float values.', 'add,plus,math,float', TAddNode);
 
   FRegistry.RegisterNodeEx('reroute', 'Reroute', 'Utility',
     'Reroute connection wire.', 'reroute,wire', TRerouteNode);
@@ -510,8 +523,9 @@ begin
   if Assigned(FOnLinkRemoved) then
     FOnLinkRemoved(Self, ALink);
 
-  if Assigned(FLinkById) and (ALink <> nil) then
+  if Assigned(FLinkById) then
     FLinkById.Remove(ALink.Id);
+
   if FLinks.Remove(ALink) >= 0 then
   begin
     if (NFrom <> nil) and (NTo <> nil) then
@@ -519,10 +533,10 @@ begin
       if not HasLinksBetweenNodes(NFrom, NTo) then
         FNodes.RemoveEdge(NFrom, NTo);
     end;
+
+    InvalidateSpatial;
     DoGraphChanged;
   end;
-
-  InvalidateSpatial;
 end;
 
 function TNodeGraph.NodesContains(ANode: TCustomNode): boolean;
@@ -1628,5 +1642,484 @@ begin
   if Assigned(FLinkRouter) then
     FLinkRouter.InvalidateCache;
 end;
+
+function TNodeGraph.GetIncomingLinksForNode(ANode: TCustomNode; AList: TList): integer;
+var
+  i: integer;
+  L: TNodeLink;
+begin
+  Result := 0;
+  if (ANode = nil) or (AList = nil) then
+    Exit;
+
+  AList.Clear;
+  for i := 0 to FLinks.Count - 1 do
+  begin
+    L := FLinks[i];
+    if (L <> nil) and (L.ToPin <> nil) and (L.ToPin.OwnerNode = ANode) then
+      AList.Add(L);
+  end;
+  Result := AList.Count;
+end;
+
+function TNodeGraph.GetOutgoingLinksForNode(ANode: TCustomNode; AList: TList): integer;
+var
+  i: integer;
+  L: TNodeLink;
+begin
+  Result := 0;
+  if (ANode = nil) or (AList = nil) then
+    Exit;
+
+  AList.Clear;
+  for i := 0 to FLinks.Count - 1 do
+  begin
+    L := FLinks[i];
+    if (L <> nil) and (L.FromPin <> nil) and (L.FromPin.OwnerNode = ANode) then
+      AList.Add(L);
+  end;
+  Result := AList.Count;
+end;
+
+function TNodeGraph.GetIncomingDataLinksForNode(ANode: TCustomNode; AList: TList): integer;
+var
+  i: integer;
+  L: TNodeLink;
+begin
+  Result := 0;
+  if (ANode = nil) or (AList = nil) then
+    Exit;
+
+  AList.Clear;
+  for i := 0 to FLinks.Count - 1 do
+  begin
+    L := FLinks[i];
+    if (L <> nil) and
+       (L.ToPin <> nil) and
+       (L.FromPin <> nil) and
+       (L.ToPin.OwnerNode = ANode) and
+       (L.FromPin.Kind = pkData) and
+       (L.ToPin.Kind = pkData) then
+      AList.Add(L);
+  end;
+  Result := AList.Count;
+end;
+
+function TNodeGraph.GetOutgoingDataLinksForNode(ANode: TCustomNode; AList: TList): integer;
+var
+  i: integer;
+  L: TNodeLink;
+begin
+  Result := 0;
+  if (ANode = nil) or (AList = nil) then
+    Exit;
+
+  AList.Clear;
+  for i := 0 to FLinks.Count - 1 do
+  begin
+    L := FLinks[i];
+    if (L <> nil) and
+       (L.FromPin <> nil) and
+       (L.ToPin <> nil) and
+       (L.FromPin.OwnerNode = ANode) and
+       (L.FromPin.Kind = pkData) and
+       (L.ToPin.Kind = pkData) then
+      AList.Add(L);
+  end;
+  Result := AList.Count;
+end;
+
+function TNodeGraph.GetIncomingExecLinksForNode(ANode: TCustomNode; AList: TList): integer;
+var
+  i: integer;
+  L: TNodeLink;
+begin
+  Result := 0;
+  if (ANode = nil) or (AList = nil) then
+    Exit;
+
+  AList.Clear;
+  for i := 0 to FLinks.Count - 1 do
+  begin
+    L := FLinks[i];
+    if (L <> nil) and
+       (L.ToPin <> nil) and
+       (L.FromPin <> nil) and
+       (L.ToPin.OwnerNode = ANode) and
+       (L.FromPin.Kind = pkExec) and
+       (L.ToPin.Kind = pkExec) then
+      AList.Add(L);
+  end;
+  Result := AList.Count;
+end;
+
+function TNodeGraph.GetOutgoingExecLinksForNode(ANode: TCustomNode; AList: TList): integer;
+var
+  i: integer;
+  L: TNodeLink;
+begin
+  Result := 0;
+  if (ANode = nil) or (AList = nil) then
+    Exit;
+
+  AList.Clear;
+  for i := 0 to FLinks.Count - 1 do
+  begin
+    L := FLinks[i];
+    if (L <> nil) and
+       (L.FromPin <> nil) and
+       (L.ToPin <> nil) and
+       (L.FromPin.OwnerNode = ANode) and
+       (L.FromPin.Kind = pkExec) and
+       (L.ToPin.Kind = pkExec) then
+      AList.Add(L);
+  end;
+  Result := AList.Count;
+end;
+
+function TNodeGraph.GetPredecessorNodes(ANode: TCustomNode; AList: TList): integer;
+var
+  i: integer;
+  L: TNodeLink;
+  PredNode: TCustomNode;
+begin
+  Result := 0;
+  if (ANode = nil) or (AList = nil) then
+    Exit;
+
+  AList.Clear;
+  for i := 0 to FLinks.Count - 1 do
+  begin
+    L := FLinks[i];
+    if (L <> nil) and (L.ToPin <> nil) and (L.FromPin <> nil) and
+       (L.ToPin.OwnerNode = ANode) then
+    begin
+      PredNode := TCustomNode(L.FromPin.OwnerNode);
+      if (PredNode <> nil) and (AList.IndexOf(PredNode) < 0) then
+        AList.Add(PredNode);
+    end;
+  end;
+  Result := AList.Count;
+end;
+
+function TNodeGraph.GetSuccessorNodes(ANode: TCustomNode; AList: TList): integer;
+var
+  i: integer;
+  L: TNodeLink;
+  SuccNode: TCustomNode;
+begin
+  Result := 0;
+  if (ANode = nil) or (AList = nil) then
+    Exit;
+
+  AList.Clear;
+  for i := 0 to FLinks.Count - 1 do
+  begin
+    L := FLinks[i];
+    if (L <> nil) and (L.FromPin <> nil) and (L.ToPin <> nil) and
+       (L.FromPin.OwnerNode = ANode) then
+    begin
+      SuccNode := TCustomNode(L.ToPin.OwnerNode);
+      if (SuccNode <> nil) and (AList.IndexOf(SuccNode) < 0) then
+        AList.Add(SuccNode);
+    end;
+  end;
+  Result := AList.Count;
+end;
+
+function TNodeGraph.GetNodeIncomingCount(ANode: TCustomNode): integer;
+var
+  i: integer;
+  L: TNodeLink;
+begin
+  Result := 0;
+  if ANode = nil then
+    Exit;
+
+  for i := 0 to FLinks.Count - 1 do
+  begin
+    L := FLinks[i];
+    if (L <> nil) and (L.ToPin <> nil) and (L.ToPin.OwnerNode = ANode) then
+      Inc(Result);
+  end;
+end;
+
+function TNodeGraph.GetNodeOutgoingCount(ANode: TCustomNode): integer;
+var
+  i: integer;
+  L: TNodeLink;
+begin
+  Result := 0;
+  if ANode = nil then
+    Exit;
+
+  for i := 0 to FLinks.Count - 1 do
+  begin
+    L := FLinks[i];
+    if (L <> nil) and (L.FromPin <> nil) and (L.FromPin.OwnerNode = ANode) then
+      Inc(Result);
+  end;
+end;
+
+function TNodeGraph.GetNodeIncomingDataCount(ANode: TCustomNode): integer;
+var
+  i: integer;
+  L: TNodeLink;
+begin
+  Result := 0;
+  if ANode = nil then
+    Exit;
+
+  for i := 0 to FLinks.Count - 1 do
+  begin
+    L := FLinks[i];
+    if (L <> nil) and
+       (L.FromPin <> nil) and
+       (L.ToPin <> nil) and
+       (L.ToPin.OwnerNode = ANode) and
+       (L.FromPin.Kind = pkData) and
+       (L.ToPin.Kind = pkData) then
+      Inc(Result);
+  end;
+end;
+
+function TNodeGraph.GetNodeOutgoingDataCount(ANode: TCustomNode): integer;
+var
+  i: integer;
+  L: TNodeLink;
+begin
+  Result := 0;
+  if ANode = nil then
+    Exit;
+
+  for i := 0 to FLinks.Count - 1 do
+  begin
+    L := FLinks[i];
+    if (L <> nil) and
+       (L.FromPin <> nil) and
+       (L.ToPin <> nil) and
+       (L.FromPin.OwnerNode = ANode) and
+       (L.FromPin.Kind = pkData) and
+       (L.ToPin.Kind = pkData) then
+      Inc(Result);
+  end;
+end;
+
+function TNodeGraph.TopologicalSortNodes(AList: TList): integer;
+var
+  InDegree: specialize TDictionary<TCustomNode, integer>;
+  Queue: TList;
+  i, j, Deg: integer;
+  N, FromNode, ToNode: TCustomNode;
+  L: TNodeLink;
+begin
+  Result := 0;
+  if AList = nil then
+    Exit;
+
+  AList.Clear;
+
+  InDegree := specialize TDictionary<TCustomNode, integer>.Create;
+  Queue := TList.Create;
+  try
+    for i := 0 to FNodes.Count - 1 do
+    begin
+      N := FNodes[i];
+      if N <> nil then
+        InDegree.AddOrSetValue(N, 0);
+    end;
+
+    for i := 0 to FLinks.Count - 1 do
+    begin
+      L := FLinks[i];
+      if (L = nil) or (L.FromPin = nil) or (L.ToPin = nil) then
+        Continue;
+
+      FromNode := TCustomNode(L.FromPin.OwnerNode);
+      ToNode := TCustomNode(L.ToPin.OwnerNode);
+      if (FromNode = nil) or (ToNode = nil) then
+        Continue;
+
+      if InDegree.TryGetValue(ToNode, Deg) then
+        InDegree.AddOrSetValue(ToNode, Deg + 1);
+    end;
+
+    for i := 0 to FNodes.Count - 1 do
+    begin
+      N := FNodes[i];
+      if (N <> nil) and InDegree.TryGetValue(N, Deg) and (Deg = 0) then
+        Queue.Add(N);
+    end;
+
+    i := 0;
+    while i < Queue.Count do
+    begin
+      N := TCustomNode(Queue[i]);
+      Inc(i);
+
+      AList.Add(N);
+
+      for j := 0 to FLinks.Count - 1 do
+      begin
+        L := FLinks[j];
+        if (L = nil) or (L.FromPin = nil) or (L.ToPin = nil) then
+          Continue;
+
+        FromNode := TCustomNode(L.FromPin.OwnerNode);
+        ToNode := TCustomNode(L.ToPin.OwnerNode);
+
+        if (FromNode = N) and (ToNode <> nil) then
+        begin
+          if InDegree.TryGetValue(ToNode, Deg) then
+          begin
+            Dec(Deg);
+            InDegree.AddOrSetValue(ToNode, Deg);
+            if Deg = 0 then
+              Queue.Add(ToNode);
+          end;
+        end;
+      end;
+    end;
+
+    if AList.Count <> FNodes.Count then
+      raise Exception.Create('TopologicalSortNodes failed: graph is not acyclic or contains broken links');
+
+    Result := AList.Count;
+  finally
+    Queue.Free;
+    InDegree.Free;
+  end;
+end;
+
+function TNodeGraph.TopologicalSortDataNodes(AList: TList): integer;
+var
+  InDegree: specialize TDictionary<TCustomNode, integer>;
+  Queue: TList;
+  i, j, Deg: integer;
+  N, FromNode, ToNode: TCustomNode;
+  L: TNodeLink;
+begin
+  Result := 0;
+  if AList = nil then
+    Exit;
+
+  AList.Clear;
+
+  InDegree := specialize TDictionary<TCustomNode, integer>.Create;
+  Queue := TList.Create;
+  try
+    for i := 0 to FNodes.Count - 1 do
+    begin
+      N := FNodes[i];
+      if N <> nil then
+        InDegree.AddOrSetValue(N, 0);
+    end;
+
+    for i := 0 to FLinks.Count - 1 do
+    begin
+      L := FLinks[i];
+      if (L = nil) or (L.FromPin = nil) or (L.ToPin = nil) then
+        Continue;
+
+      if (L.FromPin.Kind <> pkData) or (L.ToPin.Kind <> pkData) then
+        Continue;
+
+      FromNode := TCustomNode(L.FromPin.OwnerNode);
+      ToNode := TCustomNode(L.ToPin.OwnerNode);
+      if (FromNode = nil) or (ToNode = nil) then
+        Continue;
+
+      if InDegree.TryGetValue(ToNode, Deg) then
+        InDegree.AddOrSetValue(ToNode, Deg + 1);
+    end;
+
+    for i := 0 to FNodes.Count - 1 do
+    begin
+      N := FNodes[i];
+      if (N <> nil) and InDegree.TryGetValue(N, Deg) and (Deg = 0) then
+        Queue.Add(N);
+    end;
+
+    i := 0;
+    while i < Queue.Count do
+    begin
+      N := TCustomNode(Queue[i]);
+      Inc(i);
+
+      AList.Add(N);
+
+      for j := 0 to FLinks.Count - 1 do
+      begin
+        L := FLinks[j];
+        if (L = nil) or (L.FromPin = nil) or (L.ToPin = nil) then
+          Continue;
+
+        if (L.FromPin.Kind <> pkData) or (L.ToPin.Kind <> pkData) then
+          Continue;
+
+        FromNode := TCustomNode(L.FromPin.OwnerNode);
+        ToNode := TCustomNode(L.ToPin.OwnerNode);
+
+        if (FromNode = N) and (ToNode <> nil) then
+        begin
+          if InDegree.TryGetValue(ToNode, Deg) then
+          begin
+            Dec(Deg);
+            InDegree.AddOrSetValue(ToNode, Deg);
+            if Deg = 0 then
+              Queue.Add(ToNode);
+          end;
+        end;
+      end;
+    end;
+
+    Result := AList.Count;
+  finally
+    Queue.Free;
+    InDegree.Free;
+  end;
+end;
+
+function TNodeGraph.GetRootNodes(AList: TList): integer;
+var
+  i: integer;
+  N: TCustomNode;
+begin
+  Result := 0;
+  if AList = nil then
+    Exit;
+
+  AList.Clear;
+  for i := 0 to FNodes.Count - 1 do
+  begin
+    N := FNodes[i];
+    if GetNodeIncomingCount(N) = 0 then
+      AList.Add(N);
+  end;
+
+  Result := AList.Count;
+end;
+
+function TNodeGraph.GetDataRootNodes(AList: TList): integer;
+var
+  i: integer;
+  N: TCustomNode;
+begin
+  Result := 0;
+  if AList = nil then
+    Exit;
+
+  AList.Clear;
+  for i := 0 to FNodes.Count - 1 do
+  begin
+    N := FNodes[i];
+    if GetNodeIncomingDataCount(N) = 0 then
+      AList.Add(N);
+  end;
+
+  Result := AList.Count;
+end;
+
+end.
 
 end.

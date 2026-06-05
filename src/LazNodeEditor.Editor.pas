@@ -40,7 +40,11 @@ uses
   LazNodeEditor.Interaction,
   LazNodeEditor.LinkRouter,
   LazNodeEditor.ScrollBars,
-  GL2DCanvas, LazNodeEditor.GLCanvasProxy;
+  GL2DCanvas, LazNodeEditor.GLCanvasProxy,
+  LazNodeEditor.Runtime,
+  LazNodeEditor.ExecutionThread,
+  LazNodeEditor.Debugger,
+  LazNodeEditor.DebugIntf;
 
 type
   TEditorAction = (
@@ -84,15 +88,27 @@ type
     AFromPin, AToPin: TNodePin) of object;
   TEditorZoomChangedEvent = procedure(Sender: TObject) of object;
 
+  TEditorExecutionStateEvent = procedure(Sender: TObject) of object;
+  TEditorExecutionNodeEvent = procedure(Sender: TObject;
+    ANode: TExecutableNode) of object;
+  TEditorExecutionFinishedEvent = procedure(Sender: TObject; Success: boolean;
+    const ErrorMessage: string) of object;
+
   { TLazNodeEditor }
 
   TLazNodeEditor = class(TCustomControl, INodeEditorInteractionHost)
   private
+    FCurrentDebugNode: TCustomNode;
+    FDebugMode: boolean;
+    FDebugViewMode: boolean;
     FGraph: TNodeGraph;
     FController: TNodeEditorController;
     FMinDetailZoom: double;
     FMinPinLabelZoom: double;
     FMinTitleZoom: double;
+    FOnExecutionFinished: TEditorExecutionFinishedEvent;
+    FOnExecutionNodeChanged: TEditorExecutionNodeEvent;
+    FOnExecutionStateChanged: TEditorExecutionStateEvent;
     FViewport: TNodeViewport;
     FRenderer: INodeEditorRenderer;
     FRenderContext: TRenderContext;
@@ -165,6 +181,30 @@ type
     FSelectionNotifyLock: integer;
     FPendingSelectionChanged: boolean;
 
+    FBreakpoints: TList;
+    FDebugger: TGraphDebugger;
+    FExecutionThread: TGraphExecutionThread;
+    FLastRuntimeError: string;
+    FRuntimeRunning: boolean;
+    FRuntimePaused: boolean;
+
+    procedure ExecutionThreadStarted(Sender: TObject);
+    procedure ExecutionThreadNodeExecuted(Sender: TObject; ANode: TExecutableNode);
+    procedure ExecutionThreadFinished(Sender: TObject; Success: boolean;
+      const ErrorMessage: string);
+    procedure ExecutionThreadError(Sender: TObject; const ErrorInfo: TThreadErrorInfo);
+    procedure ExecutionThreadDebuggerPaused(Sender: TObject;
+      ANode: TCustomNode; APin: TNodePin; Context: INodeExecutionContext);
+    function GetExecutionContext: TNodeExecutionContext;
+
+    procedure SyncBreakpointsToDebugger;
+    function FindDefaultStartExecNode: TExecutableNode;
+    function IsExecEntryNode(ANode: TCustomNode): boolean;
+    procedure ClearRuntimeVisualState;
+
+    procedure SetCurrentDebugNode(AValue: TCustomNode);
+    procedure SetDebugMode(AValue: boolean);
+    procedure SetDebugViewMode(AValue: boolean);
     procedure SetReadOnly(AValue: boolean);
     procedure SetScrollBarsMode(AValue: TScrollBarsMode);
     procedure SetOnDrawScrollBars(AValue: TRenderScrollBarsDrawEvent);
@@ -202,14 +242,6 @@ type
     procedure EnsureSortedNodes;
 
     procedure BuildContextMenu;
-    procedure OnAddRegisteredNodeClick(Sender: TObject);
-    procedure OnContextCopy(Sender: TObject);
-    procedure OnContextPaste(Sender: TObject);
-    procedure OnContextDuplicate(Sender: TObject);
-    procedure OnContextDelete(Sender: TObject);
-    procedure OnContextSearchNode(Sender: TObject);
-    procedure OnContextInsertReroute(Sender: TObject);
-    procedure OnContextAddComment(Sender: TObject);
 
     {$IFNDEF MSWINDOWS}
     procedure GLMouseDown(Sender: TObject; Button: TMouseButton;
@@ -237,7 +269,6 @@ type
     procedure MouseLeave; override;
     procedure Resize; override;
     function ResolveShortcut(Key: word; Shift: TShiftState): TEditorAction; virtual;
-    function ExecuteEditorAction(AAction: TEditorAction): boolean; virtual;
     procedure BeginSelectionUpdate;
     procedure EndSelectionUpdate;
     procedure SelectionChanged;
@@ -322,8 +353,6 @@ type
     procedure UpdatePinsConnectedState;
     function CanPinAcceptMoreConnections(APin: TNodePin): boolean;
 
-    procedure ShowNodeSearchPopup(AScreenX, AScreenY: integer;
-      AWorldX, AWorldY: single);
     procedure SyncControllerSelectionToView; deprecated;
     procedure SyncNodeSelectedFlags;
 
@@ -346,6 +375,19 @@ type
     procedure BeginUpdate;
     procedure EndUpdate;
     function IsUpdating: boolean;
+
+    procedure OnAddRegisteredNodeClick(Sender: TObject);
+    procedure OnContextCopy(Sender: TObject);
+    procedure OnContextPaste(Sender: TObject);
+    procedure OnContextDuplicate(Sender: TObject);
+    procedure OnContextDelete(Sender: TObject);
+    procedure OnContextSearchNode(Sender: TObject);
+    procedure OnContextInsertReroute(Sender: TObject);
+    procedure OnContextAddComment(Sender: TObject);
+    procedure ShowNodeSearchPopup(AScreenX, AScreenY: integer;
+      AWorldX, AWorldY: single);
+
+    function ExecuteEditorAction(AAction: TEditorAction): boolean; virtual;
 
     procedure AddNode(ANode: TCustomNode);
     procedure RemoveNode(ANode: TCustomNode);
@@ -377,6 +419,24 @@ type
 
     function ValidateGraphToStrings(AStrings: TStrings): boolean;
 
+    procedure ToggleBreakpoint(ANode: TCustomNode);
+    function HasBreakpoint(ANode: TCustomNode): boolean;
+    procedure ClearAllBreakpoints;
+    procedure HighlightNode(ANode: TCustomNode);
+
+    function ExecuteGraph(AStartNode: TExecutableNode = nil): boolean;
+    procedure StopExecution;
+    procedure PauseExecution;
+    procedure ContinueExecution;
+    procedure StepIntoExecution;
+    procedure StepOverExecution;
+
+    function IsExecutionRunning: boolean;
+    function IsExecutionPaused: boolean;
+    function GetLastRuntimeError: string;
+
+    property Debugger: TGraphDebugger read FDebugger;
+
     function AddInputPinToNode(ANode: TCustomNode; const AName, ADataType: string;
       AKind: TPinKind = pkData): TNodePin;
     function AddOutputPinToNode(ANode: TCustomNode; const AName, ADataType: string;
@@ -385,13 +445,18 @@ type
 
     procedure Invalidate; override;
 
+    property DebugMode: boolean read FDebugMode write SetDebugMode;
+    property DebugViewMode: boolean read FDebugViewMode write SetDebugViewMode;
+    property CurrentDebugNode: TCustomNode read FCurrentDebugNode
+      write SetCurrentDebugNode;
+
     property Graph: TNodeGraph read FGraph;
     property Zoom: double read GetZoom write SetZoom;
     property ZoomStep: double read GetZoomStep write SetZoomStep;
     property Controller: TNodeEditorController read FController;
     property Viewport: TNodeViewport read FViewport;
     property Renderer: INodeEditorRenderer read FRenderer;
-
+    property ExecutionContext: TNodeExecutionContext read GetExecutionContext;
   published
     property Align;
     property Anchors;
@@ -456,6 +521,13 @@ type
     property OnNodeSelected: TNodeMouseEvent read FOnNodeSelected write FOnNodeSelected;
     property OnPinSelected: TNodePinEvent read FOnPinSelected write FOnPinSelected;
     property OnLinkSelected: TNodeLinkEvent read FOnLinkSelected write FOnLinkSelected;
+
+    property OnExecutionStateChanged: TEditorExecutionStateEvent
+      read FOnExecutionStateChanged write FOnExecutionStateChanged;
+    property OnExecutionNodeChanged: TEditorExecutionNodeEvent
+      read FOnExecutionNodeChanged write FOnExecutionNodeChanged;
+    property OnExecutionFinished: TEditorExecutionFinishedEvent
+      read FOnExecutionFinished write FOnExecutionFinished;
 
   end;
 
@@ -583,12 +655,22 @@ begin
   FReadOnly := False;
   FScrollBars := TNodeEditorScrollBars.Create;
 
+  FDebugger := TGraphDebugger.Create(FGraph);
+  FExecutionThread := nil;
+  FLastRuntimeError := '';
+  FRuntimeRunning := False;
+  FRuntimePaused := False;
+
   UpdatePinsConnectedState;
   BuildContextMenu;
 end;
 
 destructor TLazNodeEditor.Destroy;
 begin
+  StopExecution;
+  FreeAndNil(FDebugger);
+  FreeAndNil(FBreakpoints);
+
   FInteraction.Free;
   FPaintNodesSorted.Free;
   FController.Free;
@@ -1674,6 +1756,32 @@ begin
   Invalidate;
 end;
 
+procedure TLazNodeEditor.SetDebugMode(AValue: boolean);
+begin
+  if FDebugMode = AValue then Exit;
+  FDebugMode := AValue;
+  if not FDebugMode then
+  begin
+    FDebugViewMode := False;
+    FCurrentDebugNode := nil;
+  end;
+  Invalidate;
+end;
+
+procedure TLazNodeEditor.SetDebugViewMode(AValue: boolean);
+begin
+  if FDebugViewMode = AValue then Exit;
+  FDebugViewMode := AValue;
+  Invalidate;
+end;
+
+procedure TLazNodeEditor.SetCurrentDebugNode(AValue: TCustomNode);
+begin
+  if FCurrentDebugNode = AValue then Exit;
+  FCurrentDebugNode := AValue;
+  Invalidate;
+end;
+
 procedure TLazNodeEditor.SetScrollBarsMode(AValue: TScrollBarsMode);
 begin
   if not Assigned(FScrollBars) then
@@ -2702,6 +2810,363 @@ end;
 function TLazNodeEditor.ValidateGraphToStrings(AStrings: TStrings): boolean;
 begin
   Result := FController.ValidateGraphToStrings(AStrings);
+end;
+
+procedure TLazNodeEditor.ToggleBreakpoint(ANode: TCustomNode);
+begin
+  if ANode = nil then Exit;
+
+  if FBreakpoints = nil then
+    FBreakpoints := TList.Create;
+
+  if FBreakpoints.IndexOf(ANode) >= 0 then
+  begin
+    FBreakpoints.Remove(ANode);
+    if FDebugger <> nil then
+      FDebugger.RemoveBreakpoint(ANode);
+  end
+  else
+  begin
+    FBreakpoints.Add(ANode);
+    if FDebugger <> nil then
+      FDebugger.AddBreakpoint(ANode);
+  end;
+
+  Invalidate;
+end;
+
+function TLazNodeEditor.HasBreakpoint(ANode: TCustomNode): boolean;
+begin
+  Result := (FBreakpoints <> nil) and (FBreakpoints.IndexOf(ANode) >= 0);
+end;
+
+procedure TLazNodeEditor.ClearAllBreakpoints;
+begin
+  if FBreakpoints <> nil then
+    FBreakpoints.Clear;
+
+  if FDebugger <> nil then
+    FDebugger.ClearAllBreakpoints;
+
+  Invalidate;
+end;
+
+procedure TLazNodeEditor.HighlightNode(ANode: TCustomNode);
+begin
+  FCurrentDebugNode := ANode;
+  Invalidate;
+end;
+
+function TLazNodeEditor.IsExecEntryNode(ANode: TCustomNode): boolean;
+var
+  i, j: integer;
+  Pin: TNodePin;
+  Link: TNodeLink;
+begin
+  Result := False;
+  if (ANode = nil) or not (ANode is TExecutableNode) then
+    Exit;
+
+  for i := 0 to ANode.OutputCount - 1 do
+  begin
+    Pin := ANode.GetOutput(i);
+    if (Pin <> nil) and (Pin.Kind = pkExec) then
+    begin
+      Result := True;
+      Break;
+    end;
+  end;
+
+  if not Result then
+    Exit(False);
+
+  for i := 0 to ANode.InputCount - 1 do
+  begin
+    Pin := ANode.GetInput(i);
+    if (Pin = nil) or (Pin.Kind <> pkExec) then
+      Continue;
+
+    for j := 0 to FGraph.Links.Count - 1 do
+    begin
+      Link := TNodeLink(FGraph.Links[j]);
+      if (Link <> nil) and (Link.ToPin = Pin) then
+        Exit(False);
+    end;
+  end;
+
+  Result := True;
+end;
+
+function TLazNodeEditor.FindDefaultStartExecNode: TExecutableNode;
+var
+  i: integer;
+  N: TCustomNode;
+begin
+  Result := nil;
+
+  // Если пользователь что-то выделил — это явная точка старта
+  if FController.Selection.NodeCount > 0 then
+  begin
+    N := FController.Selection.GetNode(0);
+    if N is TExecutableNode then
+      Exit(TExecutableNode(N));
+  end;
+
+  // Иначе ищем "входной" узел графа
+  for i := 0 to FGraph.Nodes.Count - 1 do
+  begin
+    N := TCustomNode(FGraph.Nodes[i]);
+    if (N is TExecutableNode) and IsExecEntryNode(N) then
+      Exit(TExecutableNode(N));
+  end;
+
+  // Фоллбек — любой executable node
+  for i := 0 to FGraph.Nodes.Count - 1 do
+  begin
+    N := TCustomNode(FGraph.Nodes[i]);
+    if N is TExecutableNode then
+      Exit(TExecutableNode(N));
+  end;
+end;
+
+procedure TLazNodeEditor.SyncBreakpointsToDebugger;
+var
+  i: integer;
+  N: TCustomNode;
+begin
+  if FDebugger = nil then
+    Exit;
+
+  FDebugger.ClearAllBreakpoints;
+
+  if FBreakpoints = nil then
+    Exit;
+
+  for i := 0 to FBreakpoints.Count - 1 do
+  begin
+    N := TCustomNode(FBreakpoints[i]);
+    if N <> nil then
+      FDebugger.AddBreakpoint(N);
+  end;
+end;
+
+procedure TLazNodeEditor.ClearRuntimeVisualState;
+begin
+  FRuntimeRunning := False;
+  FRuntimePaused := False;
+  FCurrentDebugNode := nil;
+  FDebugViewMode := False;
+  Invalidate;
+end;
+
+procedure TLazNodeEditor.ExecutionThreadStarted(Sender: TObject);
+begin
+  FLastRuntimeError := '';
+  FRuntimeRunning := True;
+  FRuntimePaused := False;
+  FDebugMode := True;
+  FDebugViewMode := True;
+  Invalidate;
+
+  if Assigned(FOnExecutionStateChanged) then
+    FOnExecutionStateChanged(Self);
+end;
+
+procedure TLazNodeEditor.ExecutionThreadNodeExecuted(Sender: TObject;
+  ANode: TExecutableNode);
+begin
+  FCurrentDebugNode := ANode;
+  FDebugMode := True;
+  FDebugViewMode := True;
+  RequestRepaint(True);
+
+  if Assigned(FOnExecutionNodeChanged) then
+    FOnExecutionNodeChanged(Self, ANode);
+
+  if Assigned(FOnExecutionStateChanged) then
+    FOnExecutionStateChanged(Self);
+end;
+
+procedure TLazNodeEditor.ExecutionThreadFinished(Sender: TObject;
+  Success: boolean; const ErrorMessage: string);
+begin
+  if Success then
+    FLastRuntimeError := ''
+  else
+    FLastRuntimeError := ErrorMessage;
+
+  FExecutionThread := nil;
+  ClearRuntimeVisualState;
+
+  if Assigned(FOnExecutionFinished) then
+    FOnExecutionFinished(Self, Success, ErrorMessage);
+
+  if Assigned(FOnExecutionStateChanged) then
+    FOnExecutionStateChanged(Self);
+end;
+
+procedure TLazNodeEditor.ExecutionThreadError(Sender: TObject;
+  const ErrorInfo: TThreadErrorInfo);
+begin
+  FLastRuntimeError := ErrorInfo.Message;
+
+  if ErrorInfo.Node <> nil then
+  begin
+    FCurrentDebugNode := ErrorInfo.Node;
+    FDebugMode := True;
+    FDebugViewMode := True;
+  end;
+
+  Invalidate;
+
+  if Assigned(FOnExecutionStateChanged) then
+    FOnExecutionStateChanged(Self);
+end;
+
+procedure TLazNodeEditor.ExecutionThreadDebuggerPaused(Sender: TObject;
+  ANode: TCustomNode; APin: TNodePin; Context: INodeExecutionContext);
+begin
+  FCurrentDebugNode := ANode;
+  FDebugMode := True;
+  FDebugViewMode := True;
+  FRuntimeRunning := False;
+  FRuntimePaused := True;
+  Invalidate;
+
+  if Assigned(FOnExecutionStateChanged) then
+    FOnExecutionStateChanged(Self);
+end;
+
+function TLazNodeEditor.GetExecutionContext: TNodeExecutionContext;
+begin
+  Result := nil;
+  if (FExecutionThread <> nil) and (FExecutionThread.Executor <> nil) then
+    Result := FExecutionThread.Executor.Context;
+end;
+
+function TLazNodeEditor.ExecuteGraph(AStartNode: TExecutableNode): boolean;
+begin
+  Result := False;
+
+  StopExecution;
+
+  if AStartNode = nil then
+    AStartNode := FindDefaultStartExecNode;
+
+  if AStartNode = nil then
+  begin
+    FLastRuntimeError := 'Start execute node not found';
+    Exit(False);
+  end;
+
+  if FDebugger = nil then
+    FDebugger := TGraphDebugger.Create(FGraph);
+
+  SyncBreakpointsToDebugger;
+  FDebugger.ResetSession;
+
+  FExecutionThread := TGraphExecutionThread.Create(FGraph, AStartNode, FDebugger);
+  FExecutionThread.OnStarted := @ExecutionThreadStarted;
+  FExecutionThread.OnNodeExecuted := @ExecutionThreadNodeExecuted;
+  FExecutionThread.OnFinished := @ExecutionThreadFinished;
+  FExecutionThread.OnError := @ExecutionThreadError;
+  FExecutionThread.OnDebuggerPaused := @ExecutionThreadDebuggerPaused;
+  FExecutionThread.Start;
+
+  Result := True;
+end;
+
+procedure TLazNodeEditor.StopExecution;
+begin
+  if FExecutionThread <> nil then
+  begin
+    FExecutionThread.Stop;
+    FExecutionThread := nil;
+  end;
+
+  if FDebugger <> nil then
+    FDebugger.Continue;
+
+  ClearRuntimeVisualState;
+
+  if Assigned(FOnExecutionStateChanged) then
+    FOnExecutionStateChanged(Self);
+end;
+
+procedure TLazNodeEditor.PauseExecution;
+begin
+  if FExecutionThread <> nil then
+  begin
+    FExecutionThread.Pause;
+    FRuntimePaused := True;
+    FRuntimeRunning := False;
+  end
+  else if FDebugger <> nil then
+  begin
+    FDebugger.Pause;
+    FRuntimePaused := True;
+    FRuntimeRunning := False;
+  end;
+  if Assigned(FOnExecutionStateChanged) then
+    FOnExecutionStateChanged(Self);
+  Invalidate;
+end;
+
+procedure TLazNodeEditor.ContinueExecution;
+begin
+  if FExecutionThread <> nil then
+  begin
+    FExecutionThread.Continue;
+    FRuntimePaused := False;
+    FRuntimeRunning := True;
+    FDebugViewMode := True;
+    Invalidate;
+    if Assigned(FOnExecutionStateChanged) then
+      FOnExecutionStateChanged(Self);
+  end;
+end;
+
+procedure TLazNodeEditor.StepIntoExecution;
+begin
+  if FExecutionThread <> nil then
+  begin
+    FExecutionThread.StepInto;
+    FRuntimePaused := False;
+    FRuntimeRunning := True;
+    FDebugViewMode := True;
+    Invalidate;
+    if Assigned(FOnExecutionStateChanged) then
+       FOnExecutionStateChanged(Self);
+  end;
+end;
+
+procedure TLazNodeEditor.StepOverExecution;
+begin
+  if FExecutionThread <> nil then
+  begin
+    FExecutionThread.StepOver;
+    FRuntimePaused := False;
+    FRuntimeRunning := True;
+    FDebugViewMode := True;
+    Invalidate;
+    if Assigned(FOnExecutionStateChanged) then
+    FOnExecutionStateChanged(Self);
+  end;
+end;
+
+function TLazNodeEditor.IsExecutionRunning: boolean;
+begin
+  Result := FRuntimeRunning and not FRuntimePaused and (FExecutionThread <> nil);
+end;
+
+function TLazNodeEditor.IsExecutionPaused: boolean;
+begin
+  Result := FRuntimePaused and (FExecutionThread <> nil);
+end;
+
+function TLazNodeEditor.GetLastRuntimeError: string;
+begin
+  Result := FLastRuntimeError;
 end;
 
 function TLazNodeEditor.AddInputPinToNode(ANode: TCustomNode;
