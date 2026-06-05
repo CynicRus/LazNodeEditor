@@ -5,9 +5,9 @@ unit MainDemoForm;
 interface
 
 uses
-  Classes, SysUtils, Forms, Controls, Graphics, Dialogs, ComCtrls, ExtCtrls,
-  StdCtrls, Menus, ActnList, LazNodeEditor.Editor,
-  LazNodeEditor.Nodes, LazNodeEditor.Types, LazNodeEditor.Graph, LazNodeEditor.Inspector,
+  Classes, SysUtils, Forms, Controls, Graphics, Dialogs, ComCtrls, ExtCtrls, Types,
+  StdCtrls, Menus, ActnList, math, LCLIntf, LCLType, LazNodeEditor.Editor,
+  LazNodeEditor.Nodes, LazNodeEditor.Types, LazNodeEditor.LinkRouter, LazNodeEditor.Graph, LazNodeEditor.Inspector,
   LazNodeEditor.Controller, LazNodeEditor.Runtime, LazNodeEditor.Debugger,
   LazNodeEditor.ControlFlowNodes, LazNodeEditor.EngineeringNodes;
 
@@ -124,6 +124,28 @@ type
     FMemoLog: TMemo;
     FSampleGraphLoaded: boolean;
 
+    procedure NodeEditorDrawGrid(Sender: TObject; ACanvas: TCanvas;
+      const VisibleWorldRect: TRectF; Zoom, OffsetX, OffsetY: double;
+      var AHandled: boolean);
+
+    procedure EditorDrawPin(Sender: TObject; ACanvas: TCanvas;
+      APin: TNodePin; const ACenter: TPoint; ARadius: integer;
+      ASelected, AHovered, AHighlighted: boolean; var AHandled: boolean);
+
+    procedure EditorDrawLink(Sender: TObject; ACanvas: TCanvas;
+      ALink: TNodeLink; const APath: TLinkPath; ASelected, AHovered: boolean;
+      Zoom, OffsetX, OffsetY: double; var AHandled: boolean);
+
+    procedure EditorDrawSnapGuides(Sender: TObject; ACanvas: TCanvas;
+      GuideSnapXActive, GuideSnapYActive: boolean; GuideSnapX, GuideSnapY: single;
+      Zoom, OffsetX, OffsetY: double; var AHandled: boolean);
+
+    function MixColor(C1, C2: TColor; A: byte): TColor;
+    procedure RoundRectEx(ACanvas: TCanvas; const R: TRect; Radius: integer);
+    procedure DrawSelectionGlow(ACanvas: TCanvas; const R: TRect;
+      ARadius: integer; AGlowColor: TColor; AZoom: double);
+    function ClampByte(Value: integer): byte;
+
     procedure CreateEditor;
     procedure CreateInspector;
     procedure CreateToolbarIcons;
@@ -158,6 +180,7 @@ begin
   Height := 800;
 
   CreateEditor;
+  FEditor.LinkDrawStyle := {ldsBezier}{ldsOrthogonal}ldsStraight;
 
   FEditor.OnExecutionStateChanged := @OnEditorExecutionStateChanged;
   FEditor.OnExecutionNodeChanged := @OnEditorExecutionNodeChanged;
@@ -221,6 +244,11 @@ begin
   // Events
   FEditor.OnSelectionChanged := @OnEditorSelectionChanged;
   FEditor.OnZoomChanged := @OnZoomChanged;
+  FEditor.OnDrawGrid := @NodeEditorDrawGrid;
+  FEditor.OnDrawPin := @EditorDrawPin;
+  FEditor.OnDrawLink := @EditorDrawLink;
+  FEditor.OnDrawSnapGuides := @EditorDrawSnapGuides;
+
 
   SetupSampleGraph;
   UpdateUIState;
@@ -233,6 +261,507 @@ begin
   if Assigned(FController) then
     FController.Free;
 end;
+
+procedure TMainDemoFrm.NodeEditorDrawGrid(Sender: TObject; ACanvas: TCanvas;
+  const VisibleWorldRect: TRectF; Zoom, OffsetX, OffsetY: double;
+  var AHandled: boolean);
+var
+  X, Y: single;
+  SX, SY: integer;
+  Editor: TLazNodeEditor;
+  SmallStep, LargeStep: single;
+begin
+  Editor := TLazNodeEditor(Sender);
+
+  // Фон — тёмно-серый как в UE
+  ACanvas.Brush.Color := $00161616;
+  ACanvas.FillRect(Editor.ClientRect);
+
+  SmallStep := 16;   // мелкая сетка UE — каждые ~16 ед.
+  LargeStep := 128;  // крупная сетка — каждые 8 клеток
+
+  // ── Мелкая сетка ─────────────────────────────────────────────────────────
+  ACanvas.Pen.Color := $00222222;
+  ACanvas.Pen.Width := 1;
+  ACanvas.Pen.Style := psSolid; ;
+
+  X := Floor(VisibleWorldRect.Left / SmallStep) * SmallStep;
+  while X <= VisibleWorldRect.Right do
+  begin
+    SX := Round(X * Zoom + OffsetX);
+    ACanvas.MoveTo(SX, 0);
+    ACanvas.LineTo(SX, Editor.ClientHeight);
+    X := X + SmallStep;
+  end;
+
+  Y := Floor(VisibleWorldRect.Top / SmallStep) * SmallStep;
+  while Y <= VisibleWorldRect.Bottom do
+  begin
+    SY := Round(Y * Zoom + OffsetY);
+    ACanvas.MoveTo(0, SY);
+    ACanvas.LineTo(Editor.ClientWidth, SY);
+    Y := Y + SmallStep;
+  end;
+
+  // ── Крупная сетка ─────────────────────────────────────────────────────────
+  ACanvas.Pen.Color := $00303030;
+  ACanvas.Pen.Width := 1;
+  ACanvas.Pen.Style := psSolid;
+
+  X := Floor(VisibleWorldRect.Left / LargeStep) * LargeStep;
+  while X <= VisibleWorldRect.Right do
+  begin
+    SX := Round(X * Zoom + OffsetX);
+    ACanvas.MoveTo(SX, 0);
+    ACanvas.LineTo(SX, Editor.ClientHeight);
+    X := X + LargeStep;
+  end;
+
+  Y := Floor(VisibleWorldRect.Top / LargeStep) * LargeStep;
+  while Y <= VisibleWorldRect.Bottom do
+  begin
+    SY := Round(Y * Zoom + OffsetY);
+    ACanvas.MoveTo(0, SY);
+    ACanvas.LineTo(Editor.ClientWidth, SY);
+    Y := Y + LargeStep;
+  end;
+
+  AHandled := True;
+end;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Вспомогательная процедура: рисует тонкое "glow"-свечение вокруг прямоугольника
+// путём нескольких полупрозрачных колец (имитация blur без GDI+)
+// ─────────────────────────────────────────────────────────────────────────────
+procedure TMainDemoFrm.DrawSelectionGlow(ACanvas: TCanvas; const R: TRect;
+  ARadius: integer; AGlowColor: TColor; AZoom: double);
+
+var
+  i, Layers: integer;
+  Expand, Alpha: integer;
+  BlendR, BlendG, BlendB: byte;
+  BaseR, BaseG, BaseB: byte;
+  BgR, BgG, BgB: byte;
+  GlowR: TRect;
+  PenColor: TColor;
+  Factor: double;
+begin
+  Layers := 6;
+  BaseR := GetRValue(AGlowColor);
+  BaseG := GetGValue(AGlowColor);
+  BaseB := GetBValue(AGlowColor);
+  // Фон сетки — $161616
+  BgR := $16;
+  BgG := $16;
+  BgB := $16;
+
+  ACanvas.Brush.Style := bsClear;
+  ACanvas.Pen.Style := psSolid;
+  ACanvas.Pen.Width := 1;
+
+  for i := Layers downto 1 do
+  begin
+    Expand := i * 2;
+    // Затухание от края к центру (слой 1 = самый дальний = наиболее прозрачный)
+    Factor := i / Layers;           // 1/6 .. 6/6
+    Alpha := Round(Factor * 60);  // 10..60 — лёгкое свечение
+
+    BlendR := ClampByte(BgR + Round((BaseR - BgR) * Alpha / 255));
+    BlendG := ClampByte(BgG + Round((BaseG - BgG) * Alpha / 255));
+    BlendB := ClampByte(BgB + Round((BaseB - BgB) * Alpha / 255));
+    PenColor := RGB(BlendR, BlendG, BlendB);
+
+    GlowR := Rect(R.Left - Expand, R.Top -
+      Expand, R.Right + Expand, R.Bottom + Expand);
+
+    ACanvas.Pen.Color := PenColor;
+    RoundRectEx(ACanvas, GlowR, ARadius + Expand div 2);
+  end;
+
+  ACanvas.Brush.Style := bsSolid;
+end;
+
+function TMainDemoFrm.ClampByte(Value: integer): byte;
+begin
+  if Value < 0 then
+    Result := 0
+  else if Value > 255 then
+    Result := 255
+  else
+    Result := byte(Value);
+end;
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+procedure TMainDemoFrm.EditorDrawPin(Sender: TObject; ACanvas: TCanvas;
+  APin: TNodePin; const ACenter: TPoint; ARadius: integer;
+  ASelected, AHovered, AHighlighted: boolean; var AHandled: boolean);
+var
+  FillColor: TColor;
+  OuterColor: TColor;
+  R: integer;
+  // Ромб-форма для exec-пина (как в UE)
+  DiamondPts: array[0..4] of TPoint;
+  GlowPts: array[0..4] of TPoint;
+  i: integer;
+begin
+  if APin = nil then Exit;
+
+  if APin.Kind = pkExec then
+    FillColor := clWhite
+  else if APin.PinType <> nil then
+    FillColor := APin.PinType.Color
+  else
+    FillColor := $00A0A0A0;
+
+  OuterColor := MixColor(FillColor, clWhite, 80);
+  R := Max(5, ARadius);
+
+  // ── Exec-пин — стрелка/ромб, как в UE ────────────────────────────────────
+  if APin.Kind = pkExec then
+  begin
+    // Пятиугольная стрелка вправо (упрощённо — пятиугольник)
+    DiamondPts[0] := Point(ACenter.X - R, ACenter.Y - R);
+    DiamondPts[1] := Point(ACenter.X, ACenter.Y - R);
+    DiamondPts[2] := Point(ACenter.X + R, ACenter.Y);
+    DiamondPts[3] := Point(ACenter.X, ACenter.Y + R);
+    DiamondPts[4] := Point(ACenter.X - R, ACenter.Y + R);
+
+    ACanvas.Pen.Color := OuterColor;
+    ACanvas.Pen.Width := 1;
+
+    if AHovered or AHighlighted or ASelected then
+    begin
+      // Свечение вокруг exec-пина
+      ACanvas.Brush.Style := bsClear;
+      ACanvas.Pen.Color := RGB(ClampByte(GetRValue(FillColor) + 60),
+        ClampByte(GetGValue(FillColor) + 60),
+        ClampByte(GetBValue(FillColor) + 60));
+      ACanvas.Pen.Width := 2;
+      for i := 0 to 4 do
+      begin
+        GlowPts[i].X := DiamondPts[i].X + IfThen(DiamondPts[i].X > ACenter.X, 3, -3);
+        GlowPts[i].Y := DiamondPts[i].Y + IfThen(DiamondPts[i].Y > ACenter.Y, 3, -3);
+      end;
+      ACanvas.Polygon(GlowPts);
+    end;
+
+    if APin.Connected then
+      ACanvas.Brush.Color := FillColor  // залитый если подключён
+    else
+      ACanvas.Brush.Color := $001E1E1E; // пустой если нет }
+
+    ACanvas.Pen.Color := OuterColor;
+    ACanvas.Pen.Width := 1;
+    ACanvas.Polygon(DiamondPts);
+    AHandled := True;
+    Exit;
+  end;
+
+  // ── Обычный пин — круг ────────────────────────────────────────────────────
+  if ASelected then
+  begin
+    ACanvas.Brush.Style := bsClear;
+    ACanvas.Pen.Color := $00FFFFFF;
+    ACanvas.Pen.Width := 2;
+    ACanvas.Ellipse(ACenter.X - R - 4, ACenter.Y - R - 4,
+      ACenter.X + R + 4, ACenter.Y + R + 4);
+  end
+  else if AHovered or AHighlighted then
+  begin
+    ACanvas.Brush.Style := bsClear;
+    ACanvas.Pen.Color := MixColor(FillColor, clWhite, 120);
+    ACanvas.Pen.Width := 2;
+    ACanvas.Ellipse(ACenter.X - R - 3, ACenter.Y - R - 3,
+      ACenter.X + R + 3, ACenter.Y + R + 3);
+  end;
+
+  // Внешний круг (тёмный ободок)
+  ACanvas.Brush.Style := bsSolid;
+  ACanvas.Brush.Color := $001E1E1E;
+  ACanvas.Pen.Color := OuterColor;
+  ACanvas.Pen.Width := 2;
+  ACanvas.Ellipse(ACenter.X - R, ACenter.Y - R,
+    ACenter.X + R, ACenter.Y + R);
+
+  // Внутренний круг: залит если Connected, пустой (тёмный) если нет
+  if APin.Connected then
+  begin
+    ACanvas.Brush.Color := FillColor;
+    ACanvas.Pen.Color := FillColor;
+    ACanvas.Ellipse(ACenter.X - (R - 3), ACenter.Y - (R - 3),
+      ACenter.X + (R - 3), ACenter.Y + (R - 3));
+  end
+  else
+  begin
+    // Незаполненный пин — только тёмный кружок внутри
+    ACanvas.Brush.Color := $001E1E1E;
+    ACanvas.Pen.Color := OuterColor;
+    ACanvas.Pen.Width := 1;
+    ACanvas.Ellipse(ACenter.X - (R - 3), ACenter.Y - (R - 3),
+      ACenter.X + (R - 3), ACenter.Y + (R - 3));
+  end;
+
+  AHandled := True;
+end;
+
+// ─────────────────────────────────────────────────────────────────────────────
+procedure TMainDemoFrm.EditorDrawLink(Sender: TObject; ACanvas: TCanvas;
+  ALink: TNodeLink; const APath: TLinkPath; ASelected, AHovered: boolean;
+  Zoom, OffsetX, OffsetY: double; var AHandled: boolean);
+var
+  BaseColor, CoreColor, ShadowColor, HighlightColor: TColor;
+  i: integer;
+  ScreenPts: array of TPoint;
+
+  function WorldToScreenPt(const PF: TPointF): TPoint;
+  begin
+    Result := Point(
+      Round(PF.X * Zoom + OffsetX),
+      Round(PF.Y * Zoom + OffsetY)
+    );
+  end;
+
+  procedure DrawPolyline(const Pts: array of TPoint);
+  var
+    j: integer;
+  begin
+    if Length(Pts) < 2 then Exit;
+    ACanvas.MoveTo(Pts[0].X, Pts[0].Y);
+    for j := 1 to High(Pts) do
+      ACanvas.LineTo(Pts[j].X, Pts[j].Y);
+  end;
+
+  procedure DrawPolylineShifted(const Pts: array of TPoint; DX, DY: integer);
+  var
+    j: integer;
+  begin
+    if Length(Pts) < 2 then Exit;
+    ACanvas.MoveTo(Pts[0].X + DX, Pts[0].Y + DY);
+    for j := 1 to High(Pts) do
+      ACanvas.LineTo(Pts[j].X + DX, Pts[j].Y + DY);
+  end;
+
+  procedure DrawBezier(const P0, P1, P2, P3: TPoint);
+  begin
+    DrawCubicBezier(ACanvas, P0, P1, P2, P3);
+  end;
+
+  procedure DrawBezierShifted(const P0, P1, P2, P3: TPoint; DX, DY: integer);
+  begin
+    DrawCubicBezier(ACanvas,
+      Point(P0.X + DX, P0.Y + DY),
+      Point(P1.X + DX, P1.Y + DY),
+      Point(P2.X + DX, P2.Y + DY),
+      Point(P3.X + DX, P3.Y + DY));
+  end;
+
+var
+  P0, P1, P2, P3: TPoint;
+begin
+  AHandled := True;
+  if (ALink = nil) or (Length(APath.Points) = 0) then Exit;
+
+  ACanvas.Brush.Style := bsClear;
+  ACanvas.Pen.Style := psSolid;
+
+  if (ALink.FromPin <> nil) and (ALink.FromPin.Kind = pkExec) then
+  begin
+    BaseColor := $00CFCFCF;
+    CoreColor := $00F5F5F5;
+    ShadowColor := $002A2A2A;
+    HighlightColor := clWhite;
+  end
+  else if (ALink.FromPin <> nil) and (ALink.FromPin.PinType <> nil) then
+  begin
+    BaseColor := ALink.FromPin.PinType.Color;
+    CoreColor := MixColor(BaseColor, clWhite, 70);
+    ShadowColor := MixColor(BaseColor, clBlack, 170);
+    HighlightColor := MixColor(BaseColor, clWhite, 120);
+  end
+  else
+  begin
+    BaseColor := $00D8A040;
+    CoreColor := $00F0C060;
+    ShadowColor := $00302010;
+    HighlightColor := $00FFD080;
+  end;
+
+  case APath.Kind of
+    lpkBezier:
+      begin
+        if Length(APath.Points) < 4 then Exit;
+
+        P0 := WorldToScreenPt(APath.Points[0]);
+        P1 := WorldToScreenPt(APath.Points[1]);
+        P2 := WorldToScreenPt(APath.Points[2]);
+        P3 := WorldToScreenPt(APath.Points[3]);
+
+        if ASelected then
+        begin
+          ACanvas.Pen.Color := MixColor(CoreColor, clWhite, 140);
+          ACanvas.Pen.Width := 8;
+          DrawBezier(P0, P1, P2, P3);
+
+          ACanvas.Pen.Color := clWhite;
+          ACanvas.Pen.Width := 4;
+          DrawBezier(P0, P1, P2, P3);
+        end
+        else if AHovered then
+        begin
+          ACanvas.Pen.Color := MixColor(CoreColor, clWhite, 70);
+          ACanvas.Pen.Width := 7;
+          DrawBezier(P0, P1, P2, P3);
+
+          ACanvas.Pen.Color := HighlightColor;
+          ACanvas.Pen.Width := 4;
+          DrawBezier(P0, P1, P2, P3);
+        end
+        else
+        begin
+          // тень
+          ACanvas.Pen.Color := ShadowColor;
+          ACanvas.Pen.Width := 6;
+          DrawBezierShifted(P0, P1, P2, P3, 0, 1);
+
+          // основная линия
+          ACanvas.Pen.Color := BaseColor;
+          ACanvas.Pen.Width := 4;
+          DrawBezier(P0, P1, P2, P3);
+
+          // светлый блик
+          ACanvas.Pen.Color := HighlightColor;
+          ACanvas.Pen.Width := 1;
+          DrawBezierShifted(P0, P1, P2, P3, 0, -1);
+        end;
+      end;
+
+    lpkPolyline:
+      begin
+        SetLength(ScreenPts, Length(APath.Points));
+        for i := 0 to High(APath.Points) do
+          ScreenPts[i] := WorldToScreenPt(APath.Points[i]);
+
+        if ASelected then
+        begin
+          ACanvas.Pen.Color := MixColor(CoreColor, clWhite, 140);
+          ACanvas.Pen.Width := 8;
+          DrawPolyline(ScreenPts);
+
+          ACanvas.Pen.Color := clWhite;
+          ACanvas.Pen.Width := 4;
+          DrawPolyline(ScreenPts);
+        end
+        else if AHovered then
+        begin
+          ACanvas.Pen.Color := MixColor(CoreColor, clWhite, 70);
+          ACanvas.Pen.Width := 7;
+          DrawPolyline(ScreenPts);
+
+          ACanvas.Pen.Color := HighlightColor;
+          ACanvas.Pen.Width := 4;
+          DrawPolyline(ScreenPts);
+        end
+        else
+        begin
+          ACanvas.Pen.Color := ShadowColor;
+          ACanvas.Pen.Width := 6;
+          DrawPolylineShifted(ScreenPts, 0, 1);
+
+          ACanvas.Pen.Color := BaseColor;
+          ACanvas.Pen.Width := 4;
+          DrawPolyline(ScreenPts);
+
+          ACanvas.Pen.Color := HighlightColor;
+          ACanvas.Pen.Width := 1;
+          DrawPolylineShifted(ScreenPts, 0, -1);
+        end;
+      end;
+  end;
+
+  ACanvas.Pen.Width := 1;
+  ACanvas.Pen.Style := psSolid;
+  ACanvas.Brush.Style := bsSolid;
+end;
+
+// ─────────────────────────────────────────────────────────────────────────────
+procedure TMainDemoFrm.EditorDrawSnapGuides(Sender: TObject; ACanvas: TCanvas;
+  GuideSnapXActive, GuideSnapYActive: boolean; GuideSnapX, GuideSnapY: single;
+  Zoom, OffsetX, OffsetY: double; var AHandled: boolean);
+var
+  SX, SY: integer;
+  Editor: TLazNodeEditor;
+begin
+  Editor := TLazNodeEditor(Sender);
+
+  // В UE snap-линии — тонкие голубоватые пунктиры
+  ACanvas.Pen.Color := $00FFB040;  // оранжевый акцент, как в UE
+  ACanvas.Pen.Style := psDash;
+  ACanvas.Pen.Width := 1;
+
+  if GuideSnapXActive then
+  begin
+    SX := Round(GuideSnapX * Zoom + OffsetX);
+    // Тонкое свечение
+    ACanvas.Pen.Color := $00604820;
+    ACanvas.Pen.Width := 3;
+    ACanvas.Pen.Style := psSolid;
+    ACanvas.MoveTo(SX, 0);
+    ACanvas.LineTo(SX, Editor.ClientHeight);
+    // Основная линия
+    ACanvas.Pen.Color := $00FFB040;
+    ACanvas.Pen.Width := 1;
+    ACanvas.Pen.Style := psDash;
+    ACanvas.MoveTo(SX, 0);
+    ACanvas.LineTo(SX, Editor.ClientHeight);
+  end;
+
+  if GuideSnapYActive then
+  begin
+    SY := Round(GuideSnapY * Zoom + OffsetY);
+    ACanvas.Pen.Color := $00604820;
+    ACanvas.Pen.Width := 3;
+    ACanvas.Pen.Style := psSolid;
+    ACanvas.MoveTo(0, SY);
+    ACanvas.LineTo(Editor.ClientWidth, SY);
+    ACanvas.Pen.Color := $00FFB040;
+    ACanvas.Pen.Width := 1;
+    ACanvas.Pen.Style := psDash;
+    ACanvas.MoveTo(0, SY);
+    ACanvas.LineTo(Editor.ClientWidth, SY);
+  end;
+
+  AHandled := True;
+end;
+
+function TMainDemoFrm.MixColor(C1, C2: TColor; A: byte): TColor;
+var
+  r1, g1, b1: byte;
+  r2, g2, b2: byte;
+  r, g, b: byte;
+begin
+  C1 := ColorToRGB(C1);
+  C2 := ColorToRGB(C2);
+
+  r1 := Red(C1);
+  g1 := Green(C1);
+  b1 := Blue(C1);
+  r2 := Red(C2);
+  g2 := Green(C2);
+  b2 := Blue(C2);
+
+  r := (r1 * (255 - A) + r2 * A) div 255;
+  g := (g1 * (255 - A) + g2 * A) div 255;
+  b := (b1 * (255 - A) + b2 * A) div 255;
+
+  Result := RGBToColor(r, g, b);
+end;
+
+procedure TMainDemoFrm.RoundRectEx(ACanvas: TCanvas; const R: TRect; Radius: integer);
+begin
+  ACanvas.RoundRect(R.Left, R.Top, R.Right, R.Bottom, Radius, Radius);
+end;
+
 
 procedure TMainDemoFrm.FormCloseQuery(Sender: TObject; var CanClose: boolean);
 begin
@@ -719,8 +1248,8 @@ begin
     Comment.CommentText :=
       'Полный exec-flow:' + sLineBreak +
       '1) очистка строки primes' + sLineBreak +
-      '2) инициализация prime_i=True для i=2..N' + sLineBreak +
-      '3) внешний цикл по p' + sLineBreak +
+      '2) инициализация prime_i=True для i=2..N' +
+      sLineBreak + '3) внешний цикл по p' + sLineBreak +
       '4) если prime_p=True, то mark multiples' + sLineBreak +
       '5) сбор результата в переменную primes';
     Comment.Width := 520;
@@ -728,53 +1257,76 @@ begin
     FEditor.AddNode(Comment);
 
     // DATA
-    FEditor.Graph.AddLink(TNodeLink.Create(PrimesNameConst.GetOutput(1), ClearPrimes.GetInput(1)));
-    FEditor.Graph.AddLink(TNodeLink.Create(EmptyStrConst.GetOutput(1), ClearPrimes.GetInput(2)));
+    FEditor.Graph.AddLink(TNodeLink.Create(PrimesNameConst.GetOutput(1),
+      ClearPrimes.GetInput(1)));
+    FEditor.Graph.AddLink(TNodeLink.Create(EmptyStrConst.GetOutput(1),
+      ClearPrimes.GetInput(2)));
 
     FEditor.Graph.AddLink(TNodeLink.Create(TwoConst.GetOutput(1), InitLoop.GetInput(1)));
     FEditor.Graph.AddLink(TNodeLink.Create(NConst.GetOutput(1), InitLoop.GetInput(2)));
-    FEditor.Graph.AddLink(TNodeLink.Create(InitLoop.GetOutput(2), SetPrimeInit.GetInput(1)));
-    FEditor.Graph.AddLink(TNodeLink.Create(BoolTrue.GetOutput(1), SetPrimeInit.GetInput(2)));
+    FEditor.Graph.AddLink(TNodeLink.Create(InitLoop.GetOutput(2),
+      SetPrimeInit.GetInput(1)));
+    FEditor.Graph.AddLink(TNodeLink.Create(BoolTrue.GetOutput(1),
+      SetPrimeInit.GetInput(2)));
 
-    FEditor.Graph.AddLink(TNodeLink.Create(TwoConst.GetOutput(1), OuterLoop.GetInput(1)));
+    FEditor.Graph.AddLink(TNodeLink.Create(TwoConst.GetOutput(1),
+      OuterLoop.GetInput(1)));
     FEditor.Graph.AddLink(TNodeLink.Create(NConst.GetOutput(1), OuterLoop.GetInput(2)));
-    FEditor.Graph.AddLink(TNodeLink.Create(OuterLoop.GetOutput(2), ReadPrimeOuter.GetInput(1)));
-    FEditor.Graph.AddLink(TNodeLink.Create(ReadPrimeOuter.GetOutput(1), OuterBranch.GetInput(1)));
+    FEditor.Graph.AddLink(TNodeLink.Create(OuterLoop.GetOutput(2),
+      ReadPrimeOuter.GetInput(1)));
+    FEditor.Graph.AddLink(TNodeLink.Create(ReadPrimeOuter.GetOutput(1),
+      OuterBranch.GetInput(1)));
 
     FEditor.Graph.AddLink(TNodeLink.Create(OuterLoop.GetOutput(2), MulP2.GetInput(1)));
     FEditor.Graph.AddLink(TNodeLink.Create(TwoConst.GetOutput(1), MulP2.GetInput(2)));
 
     FEditor.Graph.AddLink(TNodeLink.Create(MulP2.GetOutput(1), InnerLoop.GetInput(1)));
     FEditor.Graph.AddLink(TNodeLink.Create(NConst.GetOutput(1), InnerLoop.GetInput(2)));
-    FEditor.Graph.AddLink(TNodeLink.Create(OuterLoop.GetOutput(2), InnerLoop.GetInput(3)));
+    FEditor.Graph.AddLink(TNodeLink.Create(OuterLoop.GetOutput(2),
+      InnerLoop.GetInput(3)));
 
-    FEditor.Graph.AddLink(TNodeLink.Create(InnerLoop.GetOutput(2), SetComposite.GetInput(1)));
-    FEditor.Graph.AddLink(TNodeLink.Create(BoolFalse.GetOutput(1), SetComposite.GetInput(2)));
+    FEditor.Graph.AddLink(TNodeLink.Create(InnerLoop.GetOutput(2),
+      SetComposite.GetInput(1)));
+    FEditor.Graph.AddLink(TNodeLink.Create(BoolFalse.GetOutput(1),
+      SetComposite.GetInput(2)));
 
-    FEditor.Graph.AddLink(TNodeLink.Create(TwoConst.GetOutput(1), CollectLoop.GetInput(1)));
-    FEditor.Graph.AddLink(TNodeLink.Create(NConst.GetOutput(1), CollectLoop.GetInput(2)));
-    FEditor.Graph.AddLink(TNodeLink.Create(CollectLoop.GetOutput(2), ReadPrimeCollect.GetInput(1)));
-    FEditor.Graph.AddLink(TNodeLink.Create(ReadPrimeCollect.GetOutput(1), CollectBranch.GetInput(1)));
-    FEditor.Graph.AddLink(TNodeLink.Create(CollectLoop.GetOutput(2), CollectPrime.GetInput(1)));
+    FEditor.Graph.AddLink(TNodeLink.Create(TwoConst.GetOutput(1),
+      CollectLoop.GetInput(1)));
+    FEditor.Graph.AddLink(TNodeLink.Create(NConst.GetOutput(1),
+      CollectLoop.GetInput(2)));
+    FEditor.Graph.AddLink(TNodeLink.Create(CollectLoop.GetOutput(2),
+      ReadPrimeCollect.GetInput(1)));
+    FEditor.Graph.AddLink(TNodeLink.Create(ReadPrimeCollect.GetOutput(1),
+      CollectBranch.GetInput(1)));
+    FEditor.Graph.AddLink(TNodeLink.Create(CollectLoop.GetOutput(2),
+      CollectPrime.GetInput(1)));
 
     // EXEC
     FEditor.Graph.AddLink(TNodeLink.Create(Seq.GetOutput(0), ClearPrimes.GetInput(0)));
     FEditor.Graph.AddLink(TNodeLink.Create(Seq.GetOutput(1), InitLoop.GetInput(0)));
     FEditor.Graph.AddLink(TNodeLink.Create(Seq.GetOutput(2), OuterLoop.GetInput(0)));
 
-    FEditor.Graph.AddLink(TNodeLink.Create(InitLoop.GetOutput(0), SetPrimeInit.GetInput(0)));
+    FEditor.Graph.AddLink(TNodeLink.Create(InitLoop.GetOutput(0),
+      SetPrimeInit.GetInput(0)));
 
-    FEditor.Graph.AddLink(TNodeLink.Create(OuterLoop.GetOutput(0), ReadPrimeOuter.GetInput(0)));
-    FEditor.Graph.AddLink(TNodeLink.Create(ReadPrimeOuter.GetOutput(0), OuterBranch.GetInput(0)));
+    FEditor.Graph.AddLink(TNodeLink.Create(OuterLoop.GetOutput(0),
+      ReadPrimeOuter.GetInput(0)));
+    FEditor.Graph.AddLink(TNodeLink.Create(ReadPrimeOuter.GetOutput(0),
+      OuterBranch.GetInput(0)));
     FEditor.Graph.AddLink(TNodeLink.Create(OuterBranch.GetOutput(0), MulP2.GetInput(0)));
     FEditor.Graph.AddLink(TNodeLink.Create(MulP2.GetOutput(0), InnerLoop.GetInput(0)));
-    FEditor.Graph.AddLink(TNodeLink.Create(InnerLoop.GetOutput(0), SetComposite.GetInput(0)));
+    FEditor.Graph.AddLink(TNodeLink.Create(InnerLoop.GetOutput(0),
+      SetComposite.GetInput(0)));
 
-    FEditor.Graph.AddLink(TNodeLink.Create(OuterLoop.GetOutput(1), CollectLoop.GetInput(0)));
+    FEditor.Graph.AddLink(TNodeLink.Create(OuterLoop.GetOutput(1),
+      CollectLoop.GetInput(0)));
 
-    FEditor.Graph.AddLink(TNodeLink.Create(CollectLoop.GetOutput(0), ReadPrimeCollect.GetInput(0)));
-    FEditor.Graph.AddLink(TNodeLink.Create(ReadPrimeCollect.GetOutput(0), CollectBranch.GetInput(0)));
-    FEditor.Graph.AddLink(TNodeLink.Create(CollectBranch.GetOutput(0), CollectPrime.GetInput(0)));
+    FEditor.Graph.AddLink(TNodeLink.Create(CollectLoop.GetOutput(0),
+      ReadPrimeCollect.GetInput(0)));
+    FEditor.Graph.AddLink(TNodeLink.Create(ReadPrimeCollect.GetOutput(0),
+      CollectBranch.GetInput(0)));
+    FEditor.Graph.AddLink(TNodeLink.Create(CollectBranch.GetOutput(0),
+      CollectPrime.GetInput(0)));
 
     FEditor.SelectNode(Seq, False);
     FSampleGraphLoaded := True;
@@ -842,7 +1394,7 @@ begin
 end;
 
 procedure TMainDemoFrm.OnEditorExecutionFinished(Sender: TObject;
-  Success: Boolean; const ErrorMessage: string);
+  Success: boolean; const ErrorMessage: string);
 var
   S: string;
 begin
@@ -865,8 +1417,8 @@ end;
 
 function TMainDemoFrm.GetNodeRuntimeInfo(ANode: TExecutableNode): string;
 var
-  Idx: Int64;
-  B: Boolean;
+  Idx: int64;
+  B: boolean;
   S: string;
 begin
   Result := ANode.Title;
@@ -886,8 +1438,8 @@ begin
     begin
       Idx := NodeValueToIntDef(GetVariableValue('last_prime_check_index'), -1);
       B := GetVariableBool('last_prime_check_value', False);
-      Result := Format('%s [index=%d, isPrime=%s]', [ANode.Title, Idx,
-        BoolToStr(B, True)]);
+      Result := Format('%s [index=%d, isPrime=%s]',
+        [ANode.Title, Idx, BoolToStr(B, True)]);
     end
     else if ANode is TSetPrimeFlagNode then
     begin
@@ -915,7 +1467,8 @@ var
   TimeStamp: string;
 begin
   TimeStamp := FormatDateTime('hh:nn:ss', Now);
-  StatusBar1.Panels[2].Text := Msg;                    // старый вывод в статусбар
+  StatusBar1.Panels[2].Text := Msg;
+  // старый вывод в статусбар
 
   if Assigned(FMemoLog) then
   begin
