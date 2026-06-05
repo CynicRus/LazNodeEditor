@@ -1,0 +1,271 @@
+object MainDemoFrm: TMainDemoFrm
+  Left = 300
+  Height = 800
+  Top = 100
+  Width = 1280
+  Caption = 'LazNodeEditor - Beautiful Runtime & Debug Demo'
+  ClientHeight = 800
+  ClientWidth = 1280
+  Position = poScreenCenter
+  LCLVersion = '4.99.0.0'
+  OnCloseQuery = FormCloseQuery
+  OnCreate = FormCreate
+  OnDestroy = FormDestroy
+  object pnlTop: TPanel
+    Left = 0
+    Height = 48
+    Top = 0
+    Width = 1280
+    Align = alTop
+    BevelOuter = bvNone
+    ClientHeight = 48
+    ClientWidth = 1280
+    TabOrder = 0
+    object ToolBar1: TToolBar
+      Left = 0
+      Height = 48
+      Top = 0
+      Width = 1280
+      Align = alClient
+      AutoSize = True
+      ButtonHeight = 36
+      ButtonWidth = 36
+      TabOrder = 0
+      object ToolButton1: TToolButton
+        Left = 1
+        Top = 2
+        Action = actNew
+      end
+      object ToolButton2: TToolButton
+        Left = 37
+        Top = 2
+        Action = actSave
+      end
+      object ToolButton3: TToolButton
+        Left = 73
+        Top = 2
+        Action = actLoad
+      end
+      object ToolButton4: TToolButton
+        Left = 109
+        Height = 36
+        Top = 2
+        Caption = 'ToolButton4'
+        Style = tbsSeparator
+      end
+      object ToolButton5: TToolButton
+        Left = 117
+        Top = 2
+        Action = actUndo
+      end
+      object ToolButton6: TToolButton
+        Left = 153
+        Top = 2
+        Action = actRedo
+      end
+      object ToolButton7: TToolButton
+        Left = 189
+        Height = 36
+        Top = 2
+        Caption = 'ToolButton7'
+        Style = tbsSeparator
+      end
+      object ToolButton8: TToolButton
+        Left = 197
+        Top = 2
+        Action = actRun
+      end
+      object ToolButton9: TToolButton
+        Left = 233
+        Top = 2
+        Action = actPause
+      end
+      object ToolButton10: TToolButton
+        Left = 269
+        Top = 2
+        Action = actStop
+      end
+      object ToolButton11: TToolButton
+        Left = 305
+        Height = 36
+        Top = 2
+        Caption = 'ToolButton11'
+        Style = tbsSeparator
+      end
+      object ToolButton12: TToolButton
+        Left = 313
+        Top = 2
+        Action = actStepInto
+      end
+      object ToolButton13: TToolButton
+        Left = 349
+        Top = 2
+        Action = actStepOver
+      end
+      object ToolButton14: TToolButton
+        Left = 385
+        Top = 2
+        Action = actContinue
+      end
+      object ToolButton15: TToolButton
+        Left = 421
+        Height = 36
+        Top = 2
+        Caption = 'ToolButton15'
+        Style = tbsSeparator
+      end
+      object ToolButton16: TToolButton
+        Left = 429
+        Top = 2
+        Action = actToggleBreakpoint
+      end
+    end
+  end
+  object StatusBar1: TStatusBar
+    Left = 0
+    Height = 23
+    Top = 777
+    Width = 1280
+    Panels = <    
+      item
+        Width = 120
+      end    
+      item
+        Width = 100
+      end    
+      item
+        Width = 600
+      end>
+    SimplePanel = False
+  end
+  object pnlRight: TPanel
+    Left = 1000
+    Height = 729
+    Top = 48
+    Width = 280
+    Align = alRight
+    BevelOuter = bvNone
+    TabOrder = 2
+  end
+  object Splitter1: TSplitter
+    Left = 997
+    Height = 729
+    Top = 48
+    Width = 3
+    Align = alRight
+    ResizeAnchor = akRight
+  end
+  object ActionList1: TActionList
+    Left = 48
+    Top = 120
+    object actRun: TAction
+      Caption = 'Run'
+      Hint = 'Run graph execution'
+      ShortCut = 120
+      OnExecute = actRunExecute
+    end
+    object actPause: TAction
+      Caption = 'Pause'
+      Hint = 'Pause execution'
+      ShortCut = 121
+      OnExecute = actPauseExecute
+    end
+    object actStop: TAction
+      Caption = 'Stop'
+      Hint = 'Stop execution'
+      ShortCut = 27
+      OnExecute = actStopExecute
+    end
+    object actStepInto: TAction
+      Caption = 'Step Into'
+      Hint = 'Step into next node'
+      ShortCut = 122
+      OnExecute = actStepIntoExecute
+    end
+    object actStepOver: TAction
+      Caption = 'Step Over'
+      Hint = 'Step over current node'
+      ShortCut = 123
+      OnExecute = actStepOverExecute
+    end
+    object actContinue: TAction
+      Caption = 'Continue'
+      Hint = 'Continue execution'
+      ShortCut = 119
+      OnExecute = actContinueExecute
+    end
+    object actToggleBreakpoint: TAction
+      Caption = 'Toggle Breakpoint'
+      Hint = 'Toggle breakpoint on selected node'
+      ShortCut = 16460
+      OnExecute = actToggleBreakpointExecute
+    end
+    object actClearBreakpoints: TAction
+      Caption = 'Clear All Breakpoints'
+      OnExecute = actClearBreakpointsExecute
+    end
+    object actAddComment: TAction
+      Caption = 'Add Comment/Frame'
+      OnExecute = actAddCommentExecute
+    end
+    object actSearchNode: TAction
+      Caption = 'Search Node...'
+      ShortCut = 16451
+      OnExecute = actSearchNodeExecute
+    end
+    object actFrameSelected: TAction
+      Caption = 'Frame Selected'
+      OnExecute = actFrameSelectedExecute
+    end
+    object actAlignLeft: TAction
+      Caption = 'Align Left'
+      OnExecute = actAlignLeftExecute
+    end
+    object actAlignCenterH: TAction
+      Caption = 'Align Center Horizontal'
+      OnExecute = actAlignCenterHExecute
+    end
+    object actDistributeH: TAction
+      Caption = 'Distribute Horizontally'
+      OnExecute = actDistributeHExecute
+    end
+    object actAutoLayout: TAction
+      Caption = 'Auto Layout Selected'
+      OnExecute = actAutoLayoutExecute
+    end
+    object actUndo: TAction
+      Caption = 'Undo'
+      ShortCut = 16474
+      OnExecute = actUndoExecute
+    end
+    object actRedo: TAction
+      Caption = 'Redo'
+      ShortCut = 16473
+      OnExecute = actRedoExecute
+    end
+    object actDelete: TAction
+      Caption = 'Delete Selection'
+      ShortCut = 46
+      OnExecute = actDeleteExecute
+    end
+    object actSave: TAction
+      Caption = 'Save Graph'
+      ShortCut = 16467
+      OnExecute = actSaveExecute
+    end
+    object actLoad: TAction
+      Caption = 'Load Graph'
+      ShortCut = 16460
+      OnExecute = actLoadExecute
+    end
+    object actNew: TAction
+      Caption = 'New Graph'
+      ShortCut = 16462
+      OnExecute = actNewExecute
+    end
+  end
+  object ImageList1: TImageList
+    Left = 194
+    Top = 126
+  end
+end

@@ -1,0 +1,254 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CONFIG>
+  <ProjectSession>
+    <PathDelim Value="\"/>
+    <Version Value="12"/>
+    <BuildModes Active="Default"/>
+    <Units>
+      <Unit>
+        <Filename Value="NodeEditorDemo.lpr"/>
+        <IsPartOfProject Value="True"/>
+        <CursorPos X="52" Y="16"/>
+        <UsageCount Value="20"/>
+        <Loaded Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="MainDemoForm.pas"/>
+        <ComponentName Value="MainDemoFrm"/>
+        <HasResources Value="True"/>
+        <ResourceBaseClass Value="Form"/>
+        <IsVisibleTab Value="True"/>
+        <EditorIndex Value="1"/>
+        <TopLine Value="158"/>
+        <CursorPos X="3" Y="169"/>
+        <UsageCount Value="10"/>
+        <Loaded Value="True"/>
+        <LoadedDesigner Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="..\src\LazNodeEditor.Editor.pas"/>
+        <IsPartOfProject Value="True"/>
+        <EditorIndex Value="7"/>
+        <TopLine Value="3038"/>
+        <CursorPos X="44" Y="3040"/>
+        <UsageCount Value="20"/>
+        <Loaded Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="..\src\GL2DCanvas.pas"/>
+        <EditorIndex Value="13"/>
+        <TopLine Value="14"/>
+        <CursorPos X="25" Y="32"/>
+        <UsageCount Value="10"/>
+        <Loaded Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="..\src\LazNodeEditor.GraphCommands.pas"/>
+        <EditorIndex Value="6"/>
+        <TopLine Value="299"/>
+        <CursorPos Y="433"/>
+        <UsageCount Value="10"/>
+        <Loaded Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="..\src\LazNodeEditor.Runtime.pas"/>
+        <EditorIndex Value="11"/>
+        <TopLine Value="398"/>
+        <CursorPos Y="416"/>
+        <UsageCount Value="10"/>
+        <Loaded Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="..\src\LazNodeEditor.Nodes.pas"/>
+        <EditorIndex Value="4"/>
+        <TopLine Value="1485"/>
+        <CursorPos X="5" Y="1520"/>
+        <UsageCount Value="10"/>
+        <Loaded Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="..\src\LazNodeEditor.EngineeringNodes.pas"/>
+        <IsPartOfProject Value="True"/>
+        <EditorIndex Value="12"/>
+        <TopLine Value="1095"/>
+        <CursorPos X="5" Y="1128"/>
+        <UsageCount Value="20"/>
+        <Loaded Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="..\src\LazNodeEditor.ControlFlowNodes.pas"/>
+        <EditorIndex Value="3"/>
+        <TopLine Value="302"/>
+        <CursorPos X="5" Y="342"/>
+        <UsageCount Value="10"/>
+        <Loaded Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="..\src\LazNodeEditor.Graph.pas"/>
+        <EditorIndex Value="5"/>
+        <TopLine Value="280"/>
+        <CursorPos X="24" Y="294"/>
+        <UsageCount Value="10"/>
+        <Loaded Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="..\src\LazNodeEditor.ExecutionThread.pas"/>
+        <EditorIndex Value="9"/>
+        <TopLine Value="222"/>
+        <CursorPos X="50" Y="236"/>
+        <UsageCount Value="10"/>
+        <Loaded Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="..\src\LazNodeEditor.Executor.pas"/>
+        <EditorIndex Value="10"/>
+        <TopLine Value="158"/>
+        <CursorPos Y="175"/>
+        <UsageCount Value="10"/>
+        <Loaded Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="..\src\LazNodeEditor.Debugger.pas"/>
+        <EditorIndex Value="8"/>
+        <TopLine Value="64"/>
+        <CursorPos X="3" Y="70"/>
+        <UsageCount Value="10"/>
+        <Loaded Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="C:\fpcupdeluxe\lazarus\lcl\include\imglist.inc"/>
+        <EditorIndex Value="2"/>
+        <TopLine Value="1579"/>
+        <CursorPos Y="1597"/>
+        <UsageCount Value="10"/>
+        <Loaded Value="True"/>
+      </Unit>
+    </Units>
+    <JumpHistory HistoryIndex="29">
+      <Position>
+        <Filename Value="MainDemoForm.pas"/>
+        <Caret Line="838" Column="41" TopLine="910"/>
+      </Position>
+      <Position>
+        <Filename Value="..\src\LazNodeEditor.Editor.pas"/>
+        <Caret Line="426" Column="22" TopLine="408"/>
+      </Position>
+      <Position>
+        <Filename Value="..\src\LazNodeEditor.Editor.pas"/>
+        <Caret Line="3040" Column="3" TopLine="3036"/>
+      </Position>
+      <Position>
+        <Filename Value="..\src\LazNodeEditor.Editor.pas"/>
+        <Caret Line="459" Column="64" TopLine="435"/>
+      </Position>
+      <Position>
+        <Filename Value="..\src\LazNodeEditor.Editor.pas"/>
+        <Caret Line="3040" Column="44" TopLine="3038"/>
+      </Position>
+      <Position>
+        <Filename Value="MainDemoForm.pas"/>
+        <Caret Line="123" Column="28" TopLine="116"/>
+      </Position>
+      <Position>
+        <Filename Value="MainDemoForm.pas"/>
+        <Caret Line="859" Column="16" TopLine="839"/>
+      </Position>
+      <Position>
+        <Filename Value="MainDemoForm.pas"/>
+        <Caret Line="863" Column="48" TopLine="842"/>
+      </Position>
+      <Position>
+        <Filename Value="MainDemoForm.pas"/>
+        <Caret Line="895" Column="21" TopLine="877"/>
+      </Position>
+      <Position>
+        <Filename Value="C:\fpcupdeluxe\lazarus\lcl\include\imglist.inc"/>
+        <Caret Line="1597" TopLine="1579"/>
+      </Position>
+      <Position>
+        <Filename Value="MainDemoForm.pas"/>
+        <Caret Line="577" Column="13" TopLine="559"/>
+      </Position>
+      <Position>
+        <Filename Value="MainDemoForm.pas"/>
+        <Caret Line="156" Column="39" TopLine="138"/>
+      </Position>
+      <Position>
+        <Filename Value="..\src\LazNodeEditor.ExecutionThread.pas"/>
+        <Caret Line="244" TopLine="226"/>
+      </Position>
+      <Position>
+        <Filename Value="..\src\LazNodeEditor.Runtime.pas"/>
+        <Caret Line="416" TopLine="398"/>
+      </Position>
+      <Position>
+        <Filename Value="MainDemoForm.pas"/>
+        <Caret Line="155" Column="13" TopLine="138"/>
+      </Position>
+      <Position>
+        <Filename Value="MainDemoForm.pas"/>
+        <Caret Line="1088" Column="51" TopLine="1040"/>
+      </Position>
+      <Position>
+        <Filename Value="MainDemoForm.pas"/>
+        <Caret Line="18" Column="3"/>
+      </Position>
+      <Position>
+        <Filename Value="MainDemoForm.pas"/>
+        <Caret Line="166" Column="19" TopLine="137"/>
+      </Position>
+      <Position>
+        <Filename Value="MainDemoForm.pas"/>
+        <Caret Line="129" Column="27" TopLine="112"/>
+      </Position>
+      <Position>
+        <Filename Value="MainDemoForm.pas"/>
+        <Caret Line="581" Column="8" TopLine="574"/>
+      </Position>
+      <Position>
+        <Filename Value="MainDemoForm.pas"/>
+        <Caret Line="73" Column="22" TopLine="60"/>
+      </Position>
+      <Position>
+        <Filename Value="MainDemoForm.pas"/>
+        <Caret Line="378" Column="65" TopLine="367"/>
+      </Position>
+      <Position>
+        <Filename Value="MainDemoForm.pas"/>
+        <Caret Line="1088" Column="49" TopLine="1068"/>
+      </Position>
+      <Position>
+        <Filename Value="MainDemoForm.pas"/>
+        <Caret Line="130" Column="23" TopLine="111"/>
+      </Position>
+      <Position>
+        <Filename Value="MainDemoForm.pas"/>
+        <Caret Line="879" Column="5" TopLine="862"/>
+      </Position>
+      <Position>
+        <Filename Value="MainDemoForm.pas"/>
+        <Caret Line="810" Column="48" TopLine="798"/>
+      </Position>
+      <Position>
+        <Filename Value="MainDemoForm.pas"/>
+        <Caret Line="1158" Column="31" TopLine="1141"/>
+      </Position>
+      <Position>
+        <Filename Value="MainDemoForm.pas"/>
+        <Caret Line="130" Column="22" TopLine="124"/>
+      </Position>
+      <Position>
+        <Filename Value="MainDemoForm.pas"/>
+        <Caret Line="883" Column="45" TopLine="866"/>
+      </Position>
+      <Position>
+        <Filename Value="MainDemoForm.pas"/>
+        <Caret Line="1083" Column="25" TopLine="1079"/>
+      </Position>
+    </JumpHistory>
+    <RunParams>
+      <FormatVersion Value="2"/>
+      <Modes ActiveMode=""/>
+    </RunParams>
+  </ProjectSession>
+</CONFIG>
