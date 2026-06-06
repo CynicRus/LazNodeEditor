@@ -62,6 +62,7 @@ type
     ToolButton14: TToolButton;
     ToolButton15: TToolButton;
     ToolButton16: TToolButton;
+    ToolButton17: TToolButton;
     ToolButton2: TToolButton;
     ToolButton3: TToolButton;
     ToolButton4: TToolButton;
@@ -119,7 +120,6 @@ type
   private
     FEditor: TLazNodeEditor;
     FInspector: TLazNodeInspector;
-    FController: TNodeEditorController;
     SplitterLog: TSplitter;
     FMemoLog: TMemo;
     FSampleGraphLoaded: boolean;
@@ -258,8 +258,8 @@ end;
 
 procedure TMainDemoFrm.FormDestroy(Sender: TObject);
 begin
-  if Assigned(FController) then
-    FController.Free;
+  if Assigned(FEditor) then
+    FEditor.Free;
 end;
 
 procedure TMainDemoFrm.NodeEditorDrawGrid(Sender: TObject; ACanvas: TCanvas;
@@ -793,8 +793,6 @@ begin
   FEditor.ScrollBarsVisible := True;
   FEditor.ReadOnly := False;
 
-  // Create controller for easier access
-  FController := TNodeEditorController.Create(FEditor.Graph);
   RegisterControlFlowNodes(FEditor.Graph.Registry);
   RegisterEngineeringNodes(FEditor.Graph.Registry);
 end;
@@ -1329,11 +1327,11 @@ begin
       CollectPrime.GetInput(0)));
 
     FEditor.SelectNode(Seq, False);
+    FEditor.Controller.ClearUndoRedo;
     FSampleGraphLoaded := True;
   finally
     FEditor.EndUpdate;
   end;
-
   FEditor.FrameAll;
   Log('Полный exec-граф решета загружен.');
 end;
@@ -1662,9 +1660,12 @@ begin
     Dlg.Filter := 'Node Graph (*.json)|*.json';
     if Dlg.Execute then
     begin
+      FEditor.Clear;
+      FEditor.BeginUpdate;
       FEditor.LoadFromFile(Dlg.FileName);
       Log('Graph loaded from ' + Dlg.FileName);
       FSampleGraphLoaded := True;
+      FEditor.EndUpdate;
     end;
   finally
     Dlg.Free;
