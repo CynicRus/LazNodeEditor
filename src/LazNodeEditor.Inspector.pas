@@ -74,6 +74,9 @@ type
     FGrpPins: TGroupBox;
     FPinsGrid: TStringGrid;
 
+    FGrpPinValues: TGroupBox;
+    FPinValuesGrid: TStringGrid;
+
     FGrpValues: TGroupBox;
     FValuesGrid: TStringGrid;
 
@@ -88,6 +91,7 @@ type
     procedure BuildVisualSection(AParent: TWinControl; var ATop: integer);
     procedure BuildCommentSection(AParent: TWinControl; var ATop: integer);
     procedure BuildPinsSection(AParent: TWinControl; var ATop: integer);
+    procedure BuildPinValuesSection(AParent: TWinControl; var ATop: integer);
     procedure BuildValuesSection(AParent: TWinControl; var ATop: integer);
     procedure BuildButtonBar(AParent: TWinControl; var ATop: integer);
 
@@ -108,6 +112,8 @@ type
     function MakeColorPanel(AParent: TWinControl;
       ALeft, ATop, AWidth: integer): TPanel;
     procedure ValuesGridSelectCell(Sender: TObject; ACol, ARow: integer;
+      var CanSelect: boolean);
+    procedure PinValuesGridSelectCell(Sender: TObject; ACol, ARow: integer;
       var CanSelect: boolean);
     function SafeClientWidth(AControl: TWinControl; ADefault: integer = 270): integer;
     function EditWidth(AParent: TWinControl; ALeft: integer): integer;
@@ -169,6 +175,17 @@ begin
   CanSelect := True;
 end;
 
+procedure TLazNodeInspector.PinValuesGridSelectCell(Sender: TObject;
+  ACol, ARow: integer; var CanSelect: boolean);
+begin
+  if (ARow > 0) and (ACol = 3) then
+    FPinValuesGrid.Options := FPinValuesGrid.Options + [goEditing]
+  else
+    FPinValuesGrid.Options := FPinValuesGrid.Options - [goEditing];
+
+  CanSelect := True;
+end;
+
 function TLazNodeInspector.SafeClientWidth(AControl: TWinControl;
   ADefault: integer): integer;
 begin
@@ -211,6 +228,15 @@ begin
     FPinsGrid.Cells[1, 0] := 'Dir';
     FPinsGrid.Cells[2, 0] := 'Type';
     FPinsGrid.Cells[3, 0] := 'Kind';
+  end;
+
+  FPinValuesGrid.RowCount := 1;
+  if FPinValuesGrid.ColCount >= 4 then
+  begin
+    FPinValuesGrid.Cells[0, 0] := 'Pin';
+    FPinValuesGrid.Cells[1, 0] := 'Type';
+    FPinValuesGrid.Cells[2, 0] := 'Required';
+    FPinValuesGrid.Cells[3, 0] := 'Default';
   end;
 
   FValuesGrid.RowCount := 1;
@@ -348,6 +374,38 @@ begin
       Inc(RowIndex);
     end;
 
+    RowIndex := 1;
+    FPinValuesGrid.RowCount := 1;
+
+    for i := 0 to N.InputCount - 1 do
+    begin
+      P := N.GetInput(i);
+      if P = nil then
+        Continue;
+      if P.Kind <> pkData then
+        Continue;
+
+      FPinValuesGrid.RowCount := FPinValuesGrid.RowCount + 1;
+
+      FPinValuesGrid.Cells[0, RowIndex] := P.EffectiveDisplayName;
+
+      if P.PinType <> nil then
+        FPinValuesGrid.Cells[1, RowIndex] := P.PinType.TypeId
+      else
+        FPinValuesGrid.Cells[1, RowIndex] := P.DataType;
+
+      if P.IsRequired then
+        FPinValuesGrid.Cells[2, RowIndex] := 'true'
+      else
+        FPinValuesGrid.Cells[2, RowIndex] := 'false';
+
+      FPinValuesGrid.Cells[3, RowIndex] := P.DefaultValue;
+      Inc(RowIndex);
+    end;
+
+    if FPinValuesGrid.RowCount < 2 then
+      FPinValuesGrid.RowCount := 1;
+
     if N.ValueCount > 0 then
     begin
       FValuesGrid.RowCount := 1 + N.ValueCount;
@@ -432,8 +490,10 @@ var
   OldObj, NewObj: TJSONObject;
   OldJSON, NewJSON: string;
   i: integer;
+  P: TNodePin;
   V: TNodeValue;
   VStr: string;
+  RowIndex: integer;
 begin
   if FUpdating then
     Exit;
@@ -464,6 +524,21 @@ begin
   N.Collapsed := FCollapsedCheck.Checked;
 
   N.CommentText := FCommentMemo.Text;
+
+  RowIndex := 1;
+  for i := 0 to N.InputCount - 1 do
+  begin
+    P := N.GetInput(i);
+    if P = nil then
+      Continue;
+    if P.Kind <> pkData then
+      Continue;
+
+    if RowIndex < FPinValuesGrid.RowCount then
+      P.DefaultValue := Trim(FPinValuesGrid.Cells[3, RowIndex]);
+
+    Inc(RowIndex);
+  end;
 
   for i := 0 to N.ValueCount - 1 do
   begin
@@ -530,6 +605,7 @@ begin
   BuildVisualSection(FScrollBox, YPos);
   BuildCommentSection(FScrollBox, YPos);
   BuildPinsSection(FScrollBox, YPos);
+  BuildPinValuesSection(FScrollBox, YPos);
   BuildValuesSection(FScrollBox, YPos);
   BuildButtonBar(FScrollBox, YPos);
 end;
@@ -770,6 +846,59 @@ begin
   FPinsGrid.ColWidths[1] := 42;
   FPinsGrid.ColWidths[2] := 60;
   FPinsGrid.ColWidths[3] := 44;
+end;
+
+procedure TLazNodeInspector.BuildPinValuesSection(AParent: TWinControl; var ATop: integer);
+const
+  GROUP_LEFT = 4;
+  GROUP_RIGHT = 8;
+  CAPTION_H = 22;
+  GRID_H = 110;
+  BOTTOM_PAD = 10;
+var
+  GH: integer;
+begin
+  GH := CAPTION_H + GRID_H + (BOTTOM_PAD * 2);
+
+  FGrpPinValues := TGroupBox.Create(Self);
+  FGrpPinValues.Parent := AParent;
+  FGrpPinValues.Caption := 'Input Pin Values';
+  FGrpPinValues.SetBounds(
+    GROUP_LEFT,
+    ATop,
+    SafeClientWidth(AParent) - GROUP_RIGHT,
+    GH
+  );
+  FGrpPinValues.Anchors := [akLeft, akTop, akRight];
+
+  Inc(ATop, GH + 6);
+
+  FPinValuesGrid := TStringGrid.Create(Self);
+  FPinValuesGrid.Parent := FGrpPinValues;
+  FPinValuesGrid.SetBounds(
+    8,
+    CAPTION_H div 2,
+    SafeClientWidth(FGrpPinValues) - 16,
+    GRID_H
+  );
+  FPinValuesGrid.Anchors := [akLeft, akTop, akRight];
+  FPinValuesGrid.RowCount := 1;
+  FPinValuesGrid.ColCount := 4;
+  FPinValuesGrid.FixedRows := 1;
+  FPinValuesGrid.FixedCols := 0;
+  FPinValuesGrid.Options := [goRowSizing, goColSizing, goDrawFocusSelected,
+    goRowSelect, goThumbTracking, goEditing];
+  FPinValuesGrid.ScrollBars := ssVertical;
+  FPinValuesGrid.DefaultRowHeight := 20;
+  FPinValuesGrid.Cells[0, 0] := 'Pin';
+  FPinValuesGrid.Cells[1, 0] := 'Type';
+  FPinValuesGrid.Cells[2, 0] := 'Required';
+  FPinValuesGrid.Cells[3, 0] := 'Default';
+  FPinValuesGrid.ColWidths[0] := 90;
+  FPinValuesGrid.ColWidths[1] := 60;
+  FPinValuesGrid.ColWidths[2] := 55;
+  FPinValuesGrid.ColWidths[3] := 90;
+  FPinValuesGrid.OnSelectCell := @PinValuesGridSelectCell;
 end;
 
 procedure TLazNodeInspector.BuildValuesSection(AParent: TWinControl; var ATop: integer);

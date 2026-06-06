@@ -201,6 +201,7 @@ type
     function FindDefaultStartExecNode: TExecutableNode;
     function IsExecEntryNode(ANode: TCustomNode): boolean;
     procedure ClearRuntimeVisualState;
+    procedure ClearUndoRedo;
 
     procedure SetCurrentDebugNode(AValue: TCustomNode);
     procedure SetDebugMode(AValue: boolean);
@@ -240,7 +241,6 @@ type
 
     procedure InvalidateSortedNodes;
     procedure EnsureSortedNodes;
-
     procedure BuildContextMenu;
 
     {$IFNDEF MSWINDOWS}
@@ -2957,6 +2957,11 @@ begin
   FCurrentDebugNode := nil;
   FDebugViewMode := False;
   Invalidate;
+end;
+
+procedure TLazNodeEditor.ClearUndoRedo;
+begin
+  FController.ClearUndoRedo;
 end;
 
 procedure TLazNodeEditor.ExecutionThreadStarted(Sender: TObject);

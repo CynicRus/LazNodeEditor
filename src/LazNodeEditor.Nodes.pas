@@ -51,6 +51,15 @@ type
     function GetHeaderHeight(Zoom: double): integer; virtual;
     function GetPinHitRadiusWorld(Zoom: double): single; virtual;
     function GetResizeHandleRectScreen(const AState: TNodeRenderState): TRect; virtual;
+    procedure SortPinsBySortIndex;
+
+    function FindExistingPinForLoad(AObj: TJSONObject): TNodePin; virtual;
+    function FindPinBySignature(const AName: string; ADirection: TPinDirection;
+      AKind: TPinKind): TNodePin; virtual;
+    procedure AssignPinFromJSON(APin: TNodePin; AObj: TJSONObject); virtual;
+    procedure LoadPinsFromJSON(APinsArr: TJSONArray); virtual;
+    procedure LoadValuesFromJSON(AValuesArr: TJSONArray); virtual;
+    procedure RebindPins; virtual;
 
   public
     Id: string;
@@ -201,6 +210,7 @@ type
     function Item(Index: integer): TNodeRegistryItem;
   end;
 
+function ComparePinsBySortIndex(Item1, Item2: Pointer): integer; inline;
 implementation
 
 uses
@@ -213,6 +223,15 @@ class function TPinSelectionAccess.Contains(APinSelection: TObject;
 begin
   Result := (APinSelection is TPinSelectionModel) and
     TPinSelectionModel(APinSelection).Contains(APin);
+end;
+
+function ComparePinsBySortIndex(Item1, Item2: Pointer): integer; inline;
+var
+  P1, P2: TNodePin;
+begin
+  P1 := TNodePin(Item1);
+  P2 := TNodePin(Item2);
+  Result := P1.SortIndex - P2.SortIndex;
 end;
 
 { TCustomNode }
@@ -285,6 +304,12 @@ begin
   R := GetScreenBounds(AState.Zoom, AState.OffsetX, AState.OffsetY);
   S := Max(10, Round(AState.ResizeHandleSize * AState.Zoom));
   Result := Rect(R.Right - S, R.Bottom - S, R.Right + 1, R.Bottom + 1);
+end;
+
+procedure TCustomNode.SortPinsBySortIndex;
+begin
+  FInputs.Sort(@ComparePinsBySortIndex);
+  FOutputs.Sort(@ComparePinsBySortIndex);
 end;
 
 procedure TCustomNode.SetupPins;
@@ -1218,15 +1243,173 @@ begin
   AObj.Add('values', ValuesArr);
 end;
 
+function TCustomNode.FindPinBySignature(const AName: string;
+  ADirection: TPinDirection; AKind: TPinKind): TNodePin;
+var
+  i: integer;
+  P: TNodePin;
+begin
+  Result := nil;
+
+  if ADirection = pdInput then
+  begin
+    for i := 0 to InputCount - 1 do
+    begin
+      P := GetInput(i);
+      if (P <> nil) and SameText(P.Name, AName) and (P.Kind = AKind) then
+        Exit(P);
+    end;
+  end
+  else
+  begin
+    for i := 0 to OutputCount - 1 do
+    begin
+      P := GetOutput(i);
+      if (P <> nil) and SameText(P.Name, AName) and (P.Kind = AKind) then
+        Exit(P);
+    end;
+  end;
+end;
+
+function TCustomNode.FindExistingPinForLoad(AObj: TJSONObject): TNodePin;
+var
+  PinId: string;
+  PinName: string;
+  Dir: TPinDirection;
+  Kind: TPinKind;
+begin
+  Result := nil;
+  if AObj = nil then
+    Exit;
+
+  PinId := AObj.Get('id', '');
+  if PinId <> '' then
+  begin
+    Result := FindPinById(PinId);
+    if Result <> nil then
+      Exit;
+  end;
+
+  PinName := AObj.Get('name', '');
+  Dir := StrToPinDirection(AObj.Get('direction', 'input'));
+  Kind := StrToPinKind(AObj.Get('kind', 'data'));
+
+  Result := FindPinBySignature(PinName, Dir, Kind);
+end;
+
+procedure TCustomNode.AssignPinFromJSON(APin: TNodePin; AObj: TJSONObject);
+var
+  PinTypeObj: TJSONObject;
+begin
+  if (APin = nil) or (AObj = nil) then
+    Exit;
+
+  APin.Id := AObj.Get('id', APin.Id);
+  APin.Name := AObj.Get('name', APin.Name);
+  APin.DisplayName := AObj.Get('displayName', APin.DisplayName);
+  APin.Side := TPinSide(AObj.Get('side', Ord(APin.Side)));
+  APin.LocalY := AObj.Get('localY', APin.LocalY);
+  APin.IsRequired := AObj.Get('isRequired', APin.IsRequired);
+  APin.DefaultValue := AObj.Get('defaultValue', APin.DefaultValue);
+  APin.Tooltip := AObj.Get('tooltip', APin.Tooltip);
+  APin.Hidden := AObj.Get('hidden', APin.Hidden);
+  APin.Advanced := AObj.Get('advanced', APin.Advanced);
+  APin.AllowMultipleConnections :=
+    AObj.Get('allowMultipleConnections', APin.AllowMultipleConnections);
+  APin.SortIndex := AObj.Get('sortIndex', APin.SortIndex);
+
+  if AObj.IndexOfName('dataType') >= 0 then
+    APin.SetTypeId(AObj.Get('dataType', APin.DataType));
+
+  PinTypeObj := AObj.Objects['pinType'];
+  if PinTypeObj <> nil then
+  begin
+    if APin.PinType = nil then
+      APin.PinType := TNodePinType.Create(APin.DataType);
+    APin.PinType.LoadFromJSON(PinTypeObj);
+    APin.DataType := APin.PinType.TypeId;
+  end;
+end;
+
+procedure TCustomNode.LoadPinsFromJSON(APinsArr: TJSONArray);
+var
+  i: integer;
+  PinObj: TJSONObject;
+  P: TNodePin;
+  Dir: TPinDirection;
+  Kind: TPinKind;
+  Name, DataType: string;
+  LocalY: integer;
+begin
+  if APinsArr = nil then
+    Exit;
+
+  for i := 0 to APinsArr.Count - 1 do
+  begin
+    PinObj := APinsArr.Objects[i];
+    if PinObj = nil then
+      Continue;
+
+    P := FindExistingPinForLoad(PinObj);
+
+    if P = nil then
+    begin
+      Dir := StrToPinDirection(PinObj.Get('direction', 'input'));
+      Kind := StrToPinKind(PinObj.Get('kind', 'data'));
+      Name := PinObj.Get('name', '');
+      DataType := PinObj.Get('dataType', '');
+      LocalY := PinObj.Get('localY', 40);
+
+      if Dir = pdInput then
+        P := AddInputPin(Name, DataType, Kind, LocalY)
+      else
+        P := AddOutputPin(Name, DataType, Kind, LocalY);
+    end;
+
+    AssignPinFromJSON(P, PinObj);
+    P.OwnerNode := Self;
+  end;
+
+  SortPinsBySortIndex;
+end;
+
+procedure TCustomNode.LoadValuesFromJSON(AValuesArr: TJSONArray);
+var
+  i: integer;
+  ValueObj: TJSONObject;
+  V: TNodeValue;
+  Name: string;
+begin
+  if AValuesArr = nil then
+    Exit;
+
+  for i := 0 to AValuesArr.Count - 1 do
+  begin
+    ValueObj := AValuesArr.Objects[i];
+    if ValueObj = nil then
+      Continue;
+
+    Name := ValueObj.Get('name', '');
+    V := FindValue(Name);
+    if V = nil then
+    begin
+      V := TNodeValue.Create;
+      FValues.Add(V);
+    end;
+
+    V.LoadFromJSON(ValueObj);
+  end;
+end;
+
+procedure TCustomNode.RebindPins;
+begin
+  // Descendants can override to update
+  // specific fields like FExecIn, FValueOut, etc.
+end;
+
 procedure TCustomNode.LoadFromJSON(AObj: TJSONObject);
 var
   PinsArr, ValuesArr: TJSONArray;
-  PinObj, PinTypeObj, ValueObj: TJSONObject;
-  i: integer;
-  P: TNodePin;
-  V: TNodeValue;
-  Dir: TPinDirection;
-  Kind: TPinKind;
 begin
   if AObj = nil then Exit;
 
@@ -1239,71 +1422,29 @@ begin
   Height := AObj.Get('height', Height);
   HeaderColor := TColor(AObj.Get('headerColor', integer(HeaderColor)));
   BodyColor := TColor(AObj.Get('bodyColor', integer(BodyColor)));
-  VisualKind := TNodeVisualKind(AObj.Get('visualKind', Ord(nvNormal)));
+  VisualKind := TNodeVisualKind(AObj.Get('visualKind', Ord(VisualKind)));
   CommentText := AObj.Get('commentText', CommentText);
-  Collapsed := AObj.Get('collapsed', False);
-  ZOrder := AObj.Get('zOrder', 0);
+  Collapsed := AObj.Get('collapsed', Collapsed);
+  ZOrder := AObj.Get('zOrder', ZOrder);
 
-  ClearPins;
   PinsArr := AObj.Arrays['pins'];
   if PinsArr <> nil then
-  begin
-    for i := 0 to PinsArr.Count - 1 do
-    begin
-      PinObj := PinsArr.Objects[i];
-      Dir := StrToPinDirection(PinObj.Get('direction', 'input'));
-      Kind := StrToPinKind(PinObj.Get('kind', 'data'));
-
-      P := TNodePin.Create(PinObj.Get('name', ''), Dir, Kind, PinObj.Get('localY', 40));
-      P.Side := TPinSide(PinObj.Get('side', Ord(
-        IfThen(Dir = pdInput, integer(psLeft), integer(psRight)))));
-      P.Id := PinObj.Get('id', P.Id);
-      P.DisplayName := PinObj.Get('displayName', P.Name);
-      P.DataType := PinObj.Get('dataType', '');
-      P.SetTypeId(P.DataType);
-
-      PinTypeObj := PinObj.Objects['pinType'];
-      if (PinTypeObj <> nil) and (P.PinType <> nil) then
-        P.PinType.LoadFromJSON(PinTypeObj);
-
-      P.IsRequired := PinObj.Get('isRequired', False);
-      P.DefaultValue := PinObj.Get('defaultValue', '');
-      P.Tooltip := PinObj.Get('tooltip', '');
-      P.Hidden := PinObj.Get('hidden', False);
-      P.Advanced := PinObj.Get('advanced', False);
-      P.AllowMultipleConnections :=
-        PinObj.Get('allowMultipleConnections', Dir = pdOutput);
-      P.SortIndex := PinObj.Get('sortIndex', 0);
-      P.OwnerNode := Self;
-
-      if Dir = pdInput then
-        FInputs.Add(P)
-      else
-        FOutputs.Add(P);
-    end;
-  end
-  else
+    LoadPinsFromJSON(PinsArr)
+  else if (InputCount = 0) and (OutputCount = 0) then
     SetupPins;
 
-  ClearValues;
   ValuesArr := AObj.Arrays['values'];
   if ValuesArr <> nil then
-  begin
-    for i := 0 to ValuesArr.Count - 1 do
-    begin
-      ValueObj := ValuesArr.Objects[i];
-      V := TNodeValue.Create;
-      V.LoadFromJSON(ValueObj);
-      FValues.Add(V);
-    end;
-  end;
+    LoadValuesFromJSON(ValuesArr);
+
+  RebindPins;
+  SortPinsBySortIndex;
 end;
 
 procedure TCustomNode.LoadFromJSONText(const S: string);
 var
   Data: TJSONData;
 begin
-
   if Trim(S) = '' then
     Exit;
 

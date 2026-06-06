@@ -1081,7 +1081,7 @@ var
 begin
   if Trim(S) = '' then
     Exit;
-
+  ClearUndoRedo;
   Data := GetJSON(S);
   try
     if Data.JSONType = jtObject then
@@ -1164,6 +1164,8 @@ procedure TNodeGraph.Redo;
 var
   Cmd: TGraphCommand;
 begin
+  if not assigned(FRedoStack) then
+    Exit;
   if FRedoStack.Count = 0 then
     Exit;
 
@@ -1243,9 +1245,7 @@ begin
         N := FRegistry.CreateNode(NodeType, NodeObj.Get('x', 0.0),
           NodeObj.Get('y', 0.0));
         N.LoadFromJSON(NodeObj);
-        FNodes.Add(N);
-        if Assigned(FNodeById) then
-          FNodeById.AddOrSetValue(N.Id, N);
+        AddNode(N);
       end;
     end;
 
@@ -1681,7 +1681,8 @@ begin
   Result := AList.Count;
 end;
 
-function TNodeGraph.GetIncomingDataLinksForNode(ANode: TCustomNode; AList: TList): integer;
+function TNodeGraph.GetIncomingDataLinksForNode(ANode: TCustomNode;
+  AList: TList): integer;
 var
   i: integer;
   L: TNodeLink;
@@ -1694,18 +1695,16 @@ begin
   for i := 0 to FLinks.Count - 1 do
   begin
     L := FLinks[i];
-    if (L <> nil) and
-       (L.ToPin <> nil) and
-       (L.FromPin <> nil) and
-       (L.ToPin.OwnerNode = ANode) and
-       (L.FromPin.Kind = pkData) and
-       (L.ToPin.Kind = pkData) then
+    if (L <> nil) and (L.ToPin <> nil) and (L.FromPin <> nil) and
+      (L.ToPin.OwnerNode = ANode) and (L.FromPin.Kind = pkData) and
+      (L.ToPin.Kind = pkData) then
       AList.Add(L);
   end;
   Result := AList.Count;
 end;
 
-function TNodeGraph.GetOutgoingDataLinksForNode(ANode: TCustomNode; AList: TList): integer;
+function TNodeGraph.GetOutgoingDataLinksForNode(ANode: TCustomNode;
+  AList: TList): integer;
 var
   i: integer;
   L: TNodeLink;
@@ -1718,18 +1717,16 @@ begin
   for i := 0 to FLinks.Count - 1 do
   begin
     L := FLinks[i];
-    if (L <> nil) and
-       (L.FromPin <> nil) and
-       (L.ToPin <> nil) and
-       (L.FromPin.OwnerNode = ANode) and
-       (L.FromPin.Kind = pkData) and
-       (L.ToPin.Kind = pkData) then
+    if (L <> nil) and (L.FromPin <> nil) and (L.ToPin <> nil) and
+      (L.FromPin.OwnerNode = ANode) and (L.FromPin.Kind = pkData) and
+      (L.ToPin.Kind = pkData) then
       AList.Add(L);
   end;
   Result := AList.Count;
 end;
 
-function TNodeGraph.GetIncomingExecLinksForNode(ANode: TCustomNode; AList: TList): integer;
+function TNodeGraph.GetIncomingExecLinksForNode(ANode: TCustomNode;
+  AList: TList): integer;
 var
   i: integer;
   L: TNodeLink;
@@ -1742,18 +1739,16 @@ begin
   for i := 0 to FLinks.Count - 1 do
   begin
     L := FLinks[i];
-    if (L <> nil) and
-       (L.ToPin <> nil) and
-       (L.FromPin <> nil) and
-       (L.ToPin.OwnerNode = ANode) and
-       (L.FromPin.Kind = pkExec) and
-       (L.ToPin.Kind = pkExec) then
+    if (L <> nil) and (L.ToPin <> nil) and (L.FromPin <> nil) and
+      (L.ToPin.OwnerNode = ANode) and (L.FromPin.Kind = pkExec) and
+      (L.ToPin.Kind = pkExec) then
       AList.Add(L);
   end;
   Result := AList.Count;
 end;
 
-function TNodeGraph.GetOutgoingExecLinksForNode(ANode: TCustomNode; AList: TList): integer;
+function TNodeGraph.GetOutgoingExecLinksForNode(ANode: TCustomNode;
+  AList: TList): integer;
 var
   i: integer;
   L: TNodeLink;
@@ -1766,12 +1761,9 @@ begin
   for i := 0 to FLinks.Count - 1 do
   begin
     L := FLinks[i];
-    if (L <> nil) and
-       (L.FromPin <> nil) and
-       (L.ToPin <> nil) and
-       (L.FromPin.OwnerNode = ANode) and
-       (L.FromPin.Kind = pkExec) and
-       (L.ToPin.Kind = pkExec) then
+    if (L <> nil) and (L.FromPin <> nil) and (L.ToPin <> nil) and
+      (L.FromPin.OwnerNode = ANode) and (L.FromPin.Kind = pkExec) and
+      (L.ToPin.Kind = pkExec) then
       AList.Add(L);
   end;
   Result := AList.Count;
@@ -1792,7 +1784,7 @@ begin
   begin
     L := FLinks[i];
     if (L <> nil) and (L.ToPin <> nil) and (L.FromPin <> nil) and
-       (L.ToPin.OwnerNode = ANode) then
+      (L.ToPin.OwnerNode = ANode) then
     begin
       PredNode := TCustomNode(L.FromPin.OwnerNode);
       if (PredNode <> nil) and (AList.IndexOf(PredNode) < 0) then
@@ -1817,7 +1809,7 @@ begin
   begin
     L := FLinks[i];
     if (L <> nil) and (L.FromPin <> nil) and (L.ToPin <> nil) and
-       (L.FromPin.OwnerNode = ANode) then
+      (L.FromPin.OwnerNode = ANode) then
     begin
       SuccNode := TCustomNode(L.ToPin.OwnerNode);
       if (SuccNode <> nil) and (AList.IndexOf(SuccNode) < 0) then
@@ -1873,12 +1865,9 @@ begin
   for i := 0 to FLinks.Count - 1 do
   begin
     L := FLinks[i];
-    if (L <> nil) and
-       (L.FromPin <> nil) and
-       (L.ToPin <> nil) and
-       (L.ToPin.OwnerNode = ANode) and
-       (L.FromPin.Kind = pkData) and
-       (L.ToPin.Kind = pkData) then
+    if (L <> nil) and (L.FromPin <> nil) and (L.ToPin <> nil) and
+      (L.ToPin.OwnerNode = ANode) and (L.FromPin.Kind = pkData) and
+      (L.ToPin.Kind = pkData) then
       Inc(Result);
   end;
 end;
@@ -1895,12 +1884,9 @@ begin
   for i := 0 to FLinks.Count - 1 do
   begin
     L := FLinks[i];
-    if (L <> nil) and
-       (L.FromPin <> nil) and
-       (L.ToPin <> nil) and
-       (L.FromPin.OwnerNode = ANode) and
-       (L.FromPin.Kind = pkData) and
-       (L.ToPin.Kind = pkData) then
+    if (L <> nil) and (L.FromPin <> nil) and (L.ToPin <> nil) and
+      (L.FromPin.OwnerNode = ANode) and (L.FromPin.Kind = pkData) and
+      (L.ToPin.Kind = pkData) then
       Inc(Result);
   end;
 end;
@@ -1982,7 +1968,8 @@ begin
     end;
 
     if AList.Count <> FNodes.Count then
-      raise Exception.Create('TopologicalSortNodes failed: graph is not acyclic or contains broken links');
+      raise Exception.Create(
+        'TopologicalSortNodes failed: graph is not acyclic or contains broken links');
 
     Result := AList.Count;
   finally
@@ -2121,5 +2108,4 @@ begin
 end;
 
 end.
-
 end.
