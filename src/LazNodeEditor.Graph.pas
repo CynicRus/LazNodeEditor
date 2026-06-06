@@ -1081,7 +1081,7 @@ var
 begin
   if Trim(S) = '' then
     Exit;
-  ClearUndoRedo;
+
   Data := GetJSON(S);
   try
     if Data.JSONType = jtObject then
