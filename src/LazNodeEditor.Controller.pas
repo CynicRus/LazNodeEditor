@@ -177,21 +177,11 @@ begin
 end;
 
 procedure TNodeEditorController.RemoveNode(ANode: TCustomNode);
-var
-  BeforeJSON, AfterJSON: string;
 begin
   if (FGraph = nil) or (ANode = nil) then
     Exit;
 
-  BeforeJSON := FGraph.CaptureJSONText;
-
-  if FSelection <> nil then
-    FSelection.RemoveNode(ANode);
-
-  FGraph.RemoveNode(ANode);
-
-  AfterJSON := FGraph.CaptureJSONText;
-  FGraph.ExecuteJSONSnapshotCommand(BeforeJSON, AfterJSON, 'Remove node');
+  FGraph.ExecuteCommand(TRemoveNodeCommand.Create(FGraph, ANode));
 end;
 
 procedure TNodeEditorController.RemoveLink(ALink: TNodeLink);
@@ -209,7 +199,7 @@ procedure TNodeEditorController.Clear;
 begin
   if FGraph = nil then
     Exit;
-
+  ClearUndoRedo;
   FGraph.Clear;
 
   if FSelection <> nil then
