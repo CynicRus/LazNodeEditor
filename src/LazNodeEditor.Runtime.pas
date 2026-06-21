@@ -940,6 +940,7 @@ var
   L: TList;
   Link: TNodeLink;
   NextNode: TCustomNode;
+  i: Integer;
 begin
   CheckThreadStopped;
   Result := False;
@@ -961,21 +962,22 @@ begin
     if L.Count = 0 then
       Exit(True);
 
-    Link := TNodeLink(L[0]);
-    if (Link <> nil) and (Link.ToPin <> nil) then
+    Result := True;
+    for i := 0 to L.Count - 1 do
     begin
-      NextNode := TCustomNode(Link.ToPin.OwnerNode);
-      if NextNode <> nil then
+      Link := TNodeLink(L[i]);
+      if (Link <> nil) and (Link.ToPin <> nil) then
       begin
-        if AContext.Debugger <> nil then
-          AContext.Debugger.AddTraceEntry('exec-in', NextNode, Link.ToPin, AContext);
-        Result := ExecuteFromNode(NextNode, AContext);
-      end
-      else
-        Result := True;
-    end
-    else
-      Result := True;
+        NextNode := TCustomNode(Link.ToPin.OwnerNode);
+        if NextNode <> nil then
+        begin
+          if AContext.Debugger <> nil then
+            AContext.Debugger.AddTraceEntry('exec-in', NextNode, Link.ToPin, AContext);
+          if not ExecuteFromNode(NextNode, AContext) then
+            Result := False;
+        end;
+      end;
+    end;
   finally
     L.Free;
   end;
@@ -1018,9 +1020,11 @@ begin
     if AContext.Debugger <> nil then
       AContext.Debugger.AddTraceEntry('executed', ANode, nil, AContext);
 
-    NextExecPin := AContext.LastExecOutputPin;
-    if (NextExecPin = nil) or (NextExecPin.OwnerNode <> ANode) then
-      NextExecPin := FindFirstConnectedExecOutput(ANode);
+    NextExecPin := nil;
+    if (AContext.LastExecOutputPin <> nil) and
+       (AContext.LastExecOutputPin.OwnerNode <> nil) and
+       (TCustomNode(AContext.LastExecOutputPin.OwnerNode) = ANode) then
+      NextExecPin := AContext.LastExecOutputPin;
 
     if NextExecPin <> nil then
       Result := ExecuteExecPin(NextExecPin, AContext)
